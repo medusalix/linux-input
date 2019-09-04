@@ -434,7 +434,6 @@ struct gpio_desc *gpiod_get_from_of_node(const struct device_node *node,
 
 	return desc;
 }
-EXPORT_SYMBOL_GPL(gpiod_get_from_of_node);
 
 static struct gpio_desc *of_find_gpio_rename(struct device_node *np,
 					     const char *con_id,
