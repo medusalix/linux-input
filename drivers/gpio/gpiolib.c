@@ -26,6 +26,7 @@
 #include "gpiolib.h"
 #include "gpiolib-of.h"
 #include "gpiolib-acpi.h"
+#include "gpiolib-swnode.h"
 #include "gpiolib-cdev.h"
 #include "gpiolib-sysfs.h"
 
@@ -3824,6 +3825,18 @@ static struct gpio_desc *gpiod_find_and_request(struct fwnode_handle *fwnode,
 		dev_dbg(fwnode->dev, "using ACPI for GPIO lookup\n");
 		desc = acpi_find_gpio(fwnode,
 				      con_id, idx, &flags, &lookupflags);
+	} else if (is_software_node(fwnode)) {
+		dev_dbg(fwnode->dev, "using software node for GPIO lookup\n");
+		desc = swnode_find_gpio(fwnode, con_id, idx, &lookupflags);
+	}
+
+	if (IS_ERR(desc) &&
+	    !IS_ERR_OR_NULL(fwnode) &&
+	    is_software_node(fwnode->secondary)) {
+		dev_dbg(fwnode->dev,
+			"using secondary software node for GPIO lookup\n");
+		desc = swnode_find_gpio(fwnode->secondary,
+					con_id, idx, &lookupflags);
 	}
 
 	/*
@@ -3916,13 +3929,22 @@ EXPORT_SYMBOL_GPL(fwnode_gpiod_get_index);
  */
 int gpiod_count(struct device *dev, const char *con_id)
 {
-	const struct fwnode_handle *fwnode = dev ? dev_fwnode(dev) : NULL;
+	struct fwnode_handle *fwnode = dev ? dev_fwnode(dev) : NULL;
 	int count = -ENOENT;
+	int secondary_count;
 
 	if (is_of_node(fwnode))
 		count = of_gpio_get_count(dev, con_id);
 	else if (is_acpi_node(fwnode))
 		count = acpi_gpio_count(dev, con_id);
+	else if (is_software_node(fwnode))
+		count = swnode_gpio_count(fwnode, con_id);
+
+	if (!IS_ERR_OR_NULL(fwnode) && is_software_node(fwnode->secondary)) {
+		secondary_count = swnode_gpio_count(fwnode, con_id);
+		if (secondary_count > 0)
+			count = (count > 0 ? count : 0) + secondary_count;
+	}
 
 	if (count < 0)
 		count = platform_gpio_count(dev, con_id);
