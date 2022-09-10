@@ -17,7 +17,7 @@ struct gpio_desc;
 struct gpio_device;
 
 #ifdef CONFIG_OF_GPIO
-struct gpio_desc *of_find_gpio(struct device *dev,
+struct gpio_desc *of_find_gpio(struct device_node *np,
 			       const char *con_id,
 			       unsigned int idx,
 			       unsigned long *lookupflags);
@@ -31,7 +31,7 @@ struct gpio_desc *gpiod_get_from_of_node(const struct device_node *node,
 					 enum gpiod_flags dflags,
 					 const char *label);
 #else
-static inline struct gpio_desc *of_find_gpio(struct device *dev,
+static inline struct gpio_desc *of_find_gpio(struct device_node *np,
 					     const char *con_id,
 					     unsigned int idx,
 					     unsigned long *lookupflags)
