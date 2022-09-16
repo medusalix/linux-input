@@ -81,7 +81,6 @@ static int nokia_modem_gpio_probe(struct device *dev)
 	}
 
 	gpio_name_count = of_property_count_strings(np, "gpio-names");
-
 	if (gpio_count != gpio_name_count) {
 		dev_err(dev, "number of gpios does not equal number of gpio names\n");
 		return -EINVAL;
