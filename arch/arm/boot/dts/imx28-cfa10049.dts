@@ -3,6 +3,7 @@
  * Copyright 2012 Free Electrons
  */
 
+#include <dt-bindings/gpio/gpio.h>
 /*
  * The CFA-10049 is an expansion board for the CFA-10036 module, thus we
  * need to include the CFA-10036 DTS.
@@ -346,8 +347,10 @@
 			spi-max-frequency = <100000>;
 			spi-cpol;
 			spi-cpha;
-			gpios-reset = <&gpio3 30 0>;
-			im-gpios = <&gpio5 4 0 &gpio5 5 0 &gpio5 6 0>;
+			reset-gpios = <&gpio3 30 GPIO_ACTIVE_LOW>;
+			im-gpios = <&gpio5 4 GPIO_ACTIVE_HIGH
+				    &gpio5 5 GPIO_ACTIVE_HIGH
+				    &gpio5 6 GPIO_ACTIVE_HIGH>;
 		};
 	};
 
