@@ -7,14 +7,13 @@
  */
 
 #include <linux/err.h>
-#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/nfc.h>
-#include <linux/of_gpio.h>
 #include <linux/of.h>
 #include <linux/property.h>
 #include <linux/regulator/consumer.h>
@@ -219,7 +218,7 @@ struct st95hf_context {
 	struct st95hf_spi_context spicontext;
 	struct nfc_digital_dev *ddev;
 	struct nfc_dev *nfcdev;
-	unsigned int enable_gpio;
+	struct gpio_desc *enable_gpio;
 	struct st95_digital_cmd_complete_arg complete_cb_arg;
 	struct regulator *st95hf_supply;
 	unsigned char sendrcv_trflag;
@@ -451,19 +450,19 @@ static int st95hf_select_protocol(struct st95hf_context *stcontext, int type)
 static void st95hf_send_st95enable_negativepulse(struct st95hf_context *st95con)
 {
 	/* First make irq_in pin high */
-	gpio_set_value(st95con->enable_gpio, HIGH);
+	gpiod_set_value_cansleep(st95con->enable_gpio, HIGH);
 
 	/* wait for 1 milisecond */
 	usleep_range(1000, 2000);
 
 	/* Make irq_in pin low */
-	gpio_set_value(st95con->enable_gpio, LOW);
+	gpiod_set_value_cansleep(st95con->enable_gpio, LOW);
 
 	/* wait for minimum interrupt pulse to make st95 active */
 	usleep_range(1000, 2000);
 
 	/* At end make it high */
-	gpio_set_value(st95con->enable_gpio, HIGH);
+	gpiod_set_value_cansleep(st95con->enable_gpio, HIGH);
 }
 
 /*
@@ -1108,21 +1107,14 @@ static int st95hf_probe(struct spi_device *nfc_spi_dev)
 	 */
 	dev_set_drvdata(&nfc_spi_dev->dev, spicontext);
 
-	st95context->enable_gpio =
-		of_get_named_gpio(nfc_spi_dev->dev.of_node,
-				  "enable-gpio",
-				  0);
-	if (!gpio_is_valid(st95context->enable_gpio)) {
-		dev_err(&nfc_spi_dev->dev, "No valid enable gpio\n");
-		ret = st95context->enable_gpio;
+	st95context->enable_gpio = devm_gpiod_get(&nfc_spi_dev->dev, "enable",
+						  GPIOD_OUT_HIGH);
+	ret = PTR_ERR_OR_ZERO(st95context->enable_gpio);
+	if (ret) {
+		dev_err(&nfc_spi_dev->dev,
+			"failed to request enable gpio: %d\n", ret);
 		goto err_disable_regulator;
 	}
-
-	ret = devm_gpio_request_one(&nfc_spi_dev->dev, st95context->enable_gpio,
-				    GPIOF_DIR_OUT | GPIOF_INIT_HIGH,
-				    "enable_gpio");
-	if (ret)
-		goto err_disable_regulator;
 
 	if (nfc_spi_dev->irq > 0) {
 		if (devm_request_threaded_irq(&nfc_spi_dev->dev,
