@@ -231,9 +231,9 @@ static int s3fwrn5_i2c_probe(struct i2c_client *client,
 	if (ret < 0)
 		goto disable_clk;
 
-	ret = devm_request_threaded_irq(&client->dev, phy->i2c_dev->irq, NULL,
-		s3fwrn5_i2c_irq_thread_fn, IRQF_ONESHOT,
-		S3FWRN5_I2C_DRIVER_NAME, phy);
+	ret = request_threaded_irq(phy->i2c_dev->irq,
+				   NULL, s3fwrn5_i2c_irq_thread_fn,
+				   IRQF_ONESHOT, S3FWRN5_I2C_DRIVER_NAME, phy);
 	if (ret)
 		goto s3fwrn5_remove;
 
@@ -250,6 +250,7 @@ static void s3fwrn5_i2c_remove(struct i2c_client *client)
 {
 	struct s3fwrn5_i2c_phy *phy = i2c_get_clientdata(client);
 
+	free_irq(phy->i2c_dev->irq, phy);
 	s3fwrn5_remove(phy->common.ndev);
 	clk_disable_unprepare(phy->clk);
 }
