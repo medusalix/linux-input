@@ -209,22 +209,16 @@ static int s3fwrn5_i2c_probe(struct i2c_client *client,
 	if (ret < 0)
 		return ret;
 
-	phy->clk = devm_clk_get_optional(&client->dev, NULL);
-	if (IS_ERR(phy->clk))
-		return dev_err_probe(&client->dev, PTR_ERR(phy->clk),
-				     "failed to get clock\n");
-
 	/*
 	 * S3FWRN5 depends on a clock input ("XI" pin) to function properly.
 	 * Depending on the hardware configuration this could be an always-on
 	 * oscillator or some external clock that must be explicitly enabled.
 	 * Make sure the clock is running before starting S3FWRN5.
 	 */
-	ret = clk_prepare_enable(phy->clk);
-	if (ret < 0) {
-		dev_err(&client->dev, "failed to enable clock: %d\n", ret);
-		return ret;
-	}
+	phy->clk = devm_clk_get_optional_enabled(&client->dev, NULL);
+	if (IS_ERR(phy->clk))
+		return dev_err_probe(&client->dev, PTR_ERR(phy->clk),
+				     "failed to get clock\n");
 
 	ret = s3fwrn5_probe(&phy->common.ndev, phy, &phy->i2c_dev->dev,
 			    &i2c_phy_ops);
