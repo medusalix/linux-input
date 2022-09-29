@@ -146,33 +146,39 @@ out:
 	return IRQ_HANDLED;
 }
 
-static int s3fwrn5_i2c_parse_dt(struct i2c_client *client)
+static int s3fwrn5_i2c_get_gpios(struct i2c_client *client)
 {
 	struct s3fwrn5_i2c_phy *phy = i2c_get_clientdata(client);
-	struct device_node *np = client->dev.of_node;
+	int ret;
 
-	if (!np)
-		return -ENODEV;
-
-	phy->common.gpio_en = of_get_named_gpio(np, "en-gpios", 0);
-	if (!gpio_is_valid(phy->common.gpio_en)) {
+	phy->common.gpio_en = devm_gpiod_get(&client->dev, "en",
+					     GPIOD_OUT_LOW);
+	ret = PTR_ERR_OR_ZERO(phy->common.gpio_en);
+	if (ret == -ENOENT) {
 		/* Support also deprecated property */
-		phy->common.gpio_en = of_get_named_gpio(np,
-							"s3fwrn5,en-gpios",
-							0);
-		if (!gpio_is_valid(phy->common.gpio_en))
-			return -ENODEV;
+		phy->common.gpio_en = devm_gpiod_get(&client->dev, "s3fwrn5,en",
+						     GPIOD_OUT_LOW);
+		ret = PTR_ERR_OR_ZERO(phy->common.gpio_en);
 	}
+	if (ret)
+		return ret;
 
-	phy->common.gpio_fw_wake = of_get_named_gpio(np, "wake-gpios", 0);
-	if (!gpio_is_valid(phy->common.gpio_fw_wake)) {
+	gpiod_set_consumer_name(phy->common.gpio_en, "s3fwrn82_en");
+
+	phy->common.gpio_fw_wake = devm_gpiod_get(&client->dev, "wake",
+						  GPIOD_OUT_LOW);
+	ret = PTR_ERR_OR_ZERO(phy->common.gpio_fw_wake);
+	if (ret == -ENOENT) {
 		/* Support also deprecated property */
-		phy->common.gpio_fw_wake = of_get_named_gpio(np,
-							     "s3fwrn5,fw-gpios",
-							     0);
-		if (!gpio_is_valid(phy->common.gpio_fw_wake))
-			return -ENODEV;
+		phy->common.gpio_fw_wake = devm_gpiod_get(&client->dev,
+							  "s3fwrn5,fw",
+							  GPIOD_OUT_LOW);
+		ret = PTR_ERR_OR_ZERO(phy->common.gpio_fw_wake);
 	}
+	if (ret)
+		return ret;
+
+	gpiod_set_consumer_name(phy->common.gpio_fw_wake, "s3fwrn82_fw_wake");
 
 	return 0;
 }
@@ -194,19 +200,8 @@ static int s3fwrn5_i2c_probe(struct i2c_client *client,
 	phy->i2c_dev = client;
 	i2c_set_clientdata(client, phy);
 
-	ret = s3fwrn5_i2c_parse_dt(client);
-	if (ret < 0)
-		return ret;
-
-	ret = devm_gpio_request_one(&phy->i2c_dev->dev, phy->common.gpio_en,
-				    GPIOF_OUT_INIT_HIGH, "s3fwrn5_en");
-	if (ret < 0)
-		return ret;
-
-	ret = devm_gpio_request_one(&phy->i2c_dev->dev,
-				    phy->common.gpio_fw_wake,
-				    GPIOF_OUT_INIT_LOW, "s3fwrn5_fw_wake");
-	if (ret < 0)
+	ret = s3fwrn5_i2c_get_gpios(client);
+	if (ret)
 		return ret;
 
 	/*
