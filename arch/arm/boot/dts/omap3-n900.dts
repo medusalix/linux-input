@@ -1038,7 +1038,7 @@
 		pinctrl-0 = <&acx565akm_pins>;
 
 		label = "lcd";
-		reset-gpios = <&gpio3 26 GPIO_ACTIVE_HIGH>; /* 90 */
+		reset-gpios = <&gpio3 26 GPIO_ACTIVE_LOW>; /* 90 */
 
 		port {
 			lcd_in: endpoint {
