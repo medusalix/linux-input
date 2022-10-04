@@ -212,7 +212,7 @@
 		reg = <0>;
 		label = "lcd0";
 		vddi-supply = <&lcd_regulator>;
-		reset-gpios = <&gpio4 5 GPIO_ACTIVE_HIGH>;	/* gpio101 */
+		reset-gpios = <&gpio4 5 GPIO_ACTIVE_LOW>;	/* gpio101 */
 
 		backlight = <&backlight>;
 
