@@ -272,7 +272,7 @@ static SIMPLE_DEV_PM_OPS(st33zp24_spi_ops, st33zp24_pm_suspend,
 
 static struct spi_driver st33zp24_spi_driver = {
 	.driver = {
-		.name = "st33zp24-spi",
+		.name = TPM_ST33_SPI,
 		.pm = &st33zp24_spi_ops,
 		.of_match_table = of_match_ptr(of_st33zp24_spi_match),
 		.acpi_match_table = ACPI_PTR(st33zp24_spi_acpi_match),
