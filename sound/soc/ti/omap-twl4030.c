@@ -30,7 +30,7 @@
 #include "omap-mcbsp.h"
 
 struct omap_twl4030 {
-	int jack_detect;	/* board can detect jack events */
+	struct snd_soc_jack_gpio hs_jack_gpio;
 	struct snd_soc_jack hs_jack;
 };
 
@@ -126,15 +126,6 @@ static struct snd_soc_jack_pin hs_jack_pins[] = {
 	},
 };
 
-/* Headset jack detection gpios */
-static struct snd_soc_jack_gpio hs_jack_gpios[] = {
-	{
-		.name = "hsdet-gpio",
-		.report = SND_JACK_HEADSET,
-		.debounce_time = 200,
-	},
-};
-
 static int omap_twl4030_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
@@ -142,8 +133,7 @@ static int omap_twl4030_init(struct snd_soc_pcm_runtime *rtd)
 	int ret;
 
 	/* Headset jack detection only if it is supported */
-	if (priv->jack_detect > 0) {
-		hs_jack_gpios[0].gpio = priv->jack_detect;
+	if (priv->hs_jack_gpio.gpio > 0) {
 
 		ret = snd_soc_card_jack_new_pins(rtd->card, "Headset Jack",
 						 SND_JACK_HEADSET,
@@ -152,9 +142,13 @@ static int omap_twl4030_init(struct snd_soc_pcm_runtime *rtd)
 		if (ret)
 			return ret;
 
-		ret = snd_soc_jack_add_gpios(&priv->hs_jack,
-					     ARRAY_SIZE(hs_jack_gpios),
-					     hs_jack_gpios);
+
+		priv->hs_jack_gpio.name = "hsdet-gpio";
+		priv->hs_jack_gpio.report = SND_JACK_HEADSET;
+		priv->hs_jack_gpio.debounce_time = 200;
+
+		ret = snd_soc_jack_add_gpios(&priv->hs_jack, 1,
+					     &priv->hs_jack_gpio);
 		if (ret)
 			return ret;
 	}
@@ -247,7 +241,7 @@ static int omap_twl4030_probe(struct platform_device *pdev)
 		omap_twl4030_dai_links[1].platforms->of_node = dai_node;
 	}
 
-	priv->jack_detect = of_get_named_gpio(node, "ti,jack-det-gpio", 0);
+	priv->hs_jack_gpio.gpio = of_get_named_gpio(node, "ti,jack-det-gpio", 0);
 
 	/* Optional: audio routing can be provided */
 	prop = of_find_property(node, "ti,audio-routing", NULL);
