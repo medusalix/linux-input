@@ -322,6 +322,6 @@
 	pinctrl-0 = <&pinctrl_ac97_running>;
 	pinctrl-1 = <&pinctrl_ac97_reset>;
 	pinctrl-2 = <&pinctrl_ac97_warm_reset>;
-	ac97-gpios = <&gpio4 19 0 &gpio4 18 0 &gpio2 30 0>;
+	ac97-gpios = <&gpio4 19 0 &gpio4 18 0 &gpio2 30 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
