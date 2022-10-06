@@ -16,11 +16,11 @@
  * sdp3430 (Author: Misael Lopez Cruz <misael.lopez@ti.com>)
  */
 
-#include <linux/platform_device.h>
+#include <linux/err.h>
+#include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/gpio.h>
-#include <linux/of_gpio.h>
+#include <linux/platform_device.h>
 
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -130,30 +130,44 @@ static int omap_twl4030_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_card *card = rtd->card;
 	struct omap_twl4030 *priv = snd_soc_card_get_drvdata(card);
+	struct gpio_desc *jack_detect;
 	int ret;
 
 	/* Headset jack detection only if it is supported */
-	if (priv->hs_jack_gpio.gpio > 0) {
+	jack_detect = gpiod_get_optional(card->dev, "ti,jack-det", GPIOD_IN);
+	ret = PTR_ERR_OR_ZERO(jack_detect);
+	if (ret)
+		return ret;
+
+	if (jack_detect) {
 
 		ret = snd_soc_card_jack_new_pins(rtd->card, "Headset Jack",
 						 SND_JACK_HEADSET,
 						 &priv->hs_jack, hs_jack_pins,
 						 ARRAY_SIZE(hs_jack_pins));
 		if (ret)
-			return ret;
-
+			goto err_put_gpio;
 
 		priv->hs_jack_gpio.name = "hsdet-gpio";
 		priv->hs_jack_gpio.report = SND_JACK_HEADSET;
 		priv->hs_jack_gpio.debounce_time = 200;
+		priv->hs_jack_gpio.gpio = -ENOENT;
+		priv->hs_jack_gpio.desc = jack_detect;
+
+		gpiod_set_consumer_name(priv->hs_jack_gpio.desc,
+					priv->hs_jack_gpio.name);
 
 		ret = snd_soc_jack_add_gpios(&priv->hs_jack, 1,
 					     &priv->hs_jack_gpio);
 		if (ret)
-			return ret;
+			goto err_put_gpio;
 	}
 
 	return 0;
+
+err_put_gpio:
+	gpiod_put(jack_detect);
+	return ret;
 }
 
 /* Digital audio interface glue - connects codec <--> CPU */
@@ -240,8 +254,6 @@ static int omap_twl4030_probe(struct platform_device *pdev)
 		omap_twl4030_dai_links[1].platforms->name  = NULL;
 		omap_twl4030_dai_links[1].platforms->of_node = dai_node;
 	}
-
-	priv->hs_jack_gpio.gpio = of_get_named_gpio(node, "ti,jack-det-gpio", 0);
 
 	/* Optional: audio routing can be provided */
 	prop = of_find_property(node, "ti,audio-routing", NULL);
