@@ -9,11 +9,11 @@
  *	    Romain Perier <romain.perier@collabora.com>
  */
 
+#include <linux/err.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
-#include <linux/gpio.h>
-#include <linux/of_gpio.h>
+#include <linux/gpio/consumer.h>
 #include <sound/core.h>
 #include <sound/jack.h>
 #include <sound/pcm.h>
@@ -26,8 +26,8 @@
 #define DRV_NAME "rk3288-snd-hdmi-analog"
 
 struct rk_drvdata {
-	int gpio_hp_en;
-	int gpio_hp_det;
+	struct gpio_desc *gpio_hp_en;
+	struct gpio_desc *gpio_hp_det;
 };
 
 static int rk_hp_power(struct snd_soc_dapm_widget *w,
@@ -35,11 +35,9 @@ static int rk_hp_power(struct snd_soc_dapm_widget *w,
 {
 	struct rk_drvdata *machine = snd_soc_card_get_drvdata(w->dapm->card);
 
-	if (!gpio_is_valid(machine->gpio_hp_en))
-		return 0;
-
-	gpio_set_value_cansleep(machine->gpio_hp_en,
-				SND_SOC_DAPM_EVENT_ON(event));
+	if (machine->gpio_hp_en)
+		gpiod_set_value_cansleep(machine->gpio_hp_en,
+					 SND_SOC_DAPM_EVENT_ON(event));
 
 	return 0;
 }
@@ -123,12 +121,20 @@ static int rk_init(struct snd_soc_pcm_runtime *runtime)
 	struct rk_drvdata *machine = snd_soc_card_get_drvdata(runtime->card);
 
 	/* Enable Headset Jack detection */
-	if (gpio_is_valid(machine->gpio_hp_det)) {
+	if (machine->gpio_hp_det) {
 		snd_soc_card_jack_new_pins(runtime->card, "Headphone Jack",
 					   SND_JACK_HEADPHONE, &headphone_jack,
 					   headphone_jack_pins,
 					   ARRAY_SIZE(headphone_jack_pins));
-		rk_hp_jack_gpio.gpio = machine->gpio_hp_det;
+
+		/*
+		 * Transfer ownership of gpio to the jack, it will be freed
+		 * when soc jack structure is destroyed.
+		 */
+		devm_gpiod_unhinge(runtime->card->dev, machine->gpio_hp_det);
+		rk_hp_jack_gpio.desc = machine->gpio_hp_det;
+		machine->gpio_hp_det = NULL;
+
 		snd_soc_jack_add_gpios(&headphone_jack, 1, &rk_hp_jack_gpio);
 	}
 
@@ -182,24 +188,27 @@ static int snd_rk_mc_probe(struct platform_device *pdev)
 
 	card->dev = &pdev->dev;
 
-	machine->gpio_hp_det = of_get_named_gpio(np,
-		"rockchip,hp-det-gpios", 0);
-	if (!gpio_is_valid(machine->gpio_hp_det) && machine->gpio_hp_det != -ENODEV)
-		return machine->gpio_hp_det;
-
-	machine->gpio_hp_en = of_get_named_gpio(np,
-		"rockchip,hp-en-gpios", 0);
-	if (!gpio_is_valid(machine->gpio_hp_en) && machine->gpio_hp_en != -ENODEV)
-		return machine->gpio_hp_en;
-
-	if (gpio_is_valid(machine->gpio_hp_en)) {
-		ret = devm_gpio_request_one(&pdev->dev, machine->gpio_hp_en,
-					    GPIOF_OUT_INIT_LOW, "hp_en");
-		if (ret) {
-			dev_err(card->dev, "cannot get hp_en gpio\n");
-			return ret;
-		}
+	machine->gpio_hp_det = devm_gpiod_get_optional(&pdev->dev,
+						       "rockchip,hp-det",
+						       GPIOD_OUT_LOW);
+	ret = PTR_ERR_OR_ZERO(machine->gpio_hp_det);
+	if (ret) {
+		dev_err(card->dev, "cannot get hp_det gpio: %d\n", ret);
+		return ret;
 	}
+
+	gpiod_set_consumer_name(machine->gpio_hp_en, "hp_det");
+
+	machine->gpio_hp_en = devm_gpiod_get_optional(&pdev->dev,
+						      "rockchip,hp-en",
+						      GPIOD_OUT_LOW);
+	ret = PTR_ERR_OR_ZERO(machine->gpio_hp_en);
+	if (ret) {
+		dev_err(card->dev, "cannot get hp_en gpio: %d\n", ret);
+		return ret;
+	}
+
+	gpiod_set_consumer_name(machine->gpio_hp_en, "hp_en");
 
 	ret = snd_soc_of_parse_card_name(card, "rockchip,model");
 	if (ret) {
