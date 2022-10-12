@@ -8,8 +8,7 @@ Required properties:
 - mediatek,audio-codec-bt-mrg the phandles of bt-sco dummy codec
 - pinctrl-names: Should contain only one value - "default"
 - pinctrl-0: Should specify pin control groups used for this controller.
-- i2s1-in-sel-gpio1, i2s1-in-sel-gpio2: Should specify two gpio pins to
-					control I2S1-in mux.
+- i2s1-in-sel-gpios: Should specify two gpio pins to control I2S1-in mux.
 
 Example:
 
@@ -38,6 +37,5 @@ Example:
 		mediatek,audio-codec-bt-mrg = <&bt_sco_codec>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&aud_pins_default>;
-		i2s1-in-sel-gpio1 = <&pio 53 0>;
-		i2s1-in-sel-gpio2 = <&pio 54 0>;
+		i2s1-in-sel-gpios = <&pio 53 0>, <&pio 54 0>;
 	};
