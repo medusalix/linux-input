@@ -6,11 +6,12 @@
  */
 
 #include <linux/delay.h>
+#include <linux/err.h>
+#include <linux/gpio/consumer.h>
 #include <linux/lcd.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
-#include <linux/of_gpio.h>
 #include <linux/spi/spi.h>
 
 #define HX8357_NUM_IM_PINS	3
@@ -83,8 +84,8 @@
 #define HX8369_SET_GAMMA_CURVE_RELATED		0xe0
 
 struct hx8357_data {
-	unsigned		im_pins[HX8357_NUM_IM_PINS];
-	unsigned		reset;
+	struct gpio_desc	*im_pins[HX8357_NUM_IM_PINS];
+	struct gpio_desc	*reset;
 	struct spi_device	*spi;
 	int			state;
 	bool			use_im_pins;
@@ -321,11 +322,11 @@ static void hx8357_lcd_reset(struct lcd_device *lcdev)
 	struct hx8357_data *lcd = lcd_get_data(lcdev);
 
 	/* Reset the screen */
-	gpio_set_value(lcd->reset, 1);
+	gpiod_set_value_cansleep(lcd->reset, 0);
 	usleep_range(10000, 12000);
-	gpio_set_value(lcd->reset, 0);
+	gpiod_set_value_cansleep(lcd->reset, 1);
 	usleep_range(10000, 12000);
-	gpio_set_value(lcd->reset, 1);
+	gpiod_set_value_cansleep(lcd->reset, 0);
 
 	/* The controller needs 120ms to recover from reset */
 	msleep(120);
@@ -341,9 +342,9 @@ static int hx8357_lcd_init(struct lcd_device *lcdev)
 	 * wires
 	 */
 	if (lcd->use_im_pins) {
-		gpio_set_value_cansleep(lcd->im_pins[0], 1);
-		gpio_set_value_cansleep(lcd->im_pins[1], 0);
-		gpio_set_value_cansleep(lcd->im_pins[2], 1);
+		gpiod_set_value_cansleep(lcd->im_pins[0], 1);
+		gpiod_set_value_cansleep(lcd->im_pins[1], 0);
+		gpiod_set_value_cansleep(lcd->im_pins[2], 1);
 	}
 
 	ret = hx8357_spi_write_array(lcdev, hx8357_seq_power,
@@ -601,48 +602,39 @@ static int hx8357_probe(struct spi_device *spi)
 	if (!match || !match->data)
 		return -EINVAL;
 
-	lcd->reset = of_get_named_gpio(spi->dev.of_node, "gpios-reset", 0);
-	if (!gpio_is_valid(lcd->reset)) {
-		dev_err(&spi->dev, "Missing dt property: gpios-reset\n");
-		return -EINVAL;
-	}
-
-	ret = devm_gpio_request_one(&spi->dev, lcd->reset,
-				    GPIOF_OUT_INIT_HIGH,
-				    "hx8357-reset");
+	lcd->reset = devm_gpiod_get(&spi->dev, "reset", GPIOD_OUT_LOW);
+	ret = PTR_ERR_OR_ZERO(lcd->reset);
 	if (ret) {
-		dev_err(&spi->dev,
-			"failed to request gpio %d: %d\n",
-			lcd->reset, ret);
-		return -EINVAL;
+		dev_err(&spi->dev, "failed to request reset gpio: %d\n", ret);
+		return ret;
 	}
 
-	if (of_find_property(spi->dev.of_node, "im-gpios", NULL)) {
-		lcd->use_im_pins = 1;
+	gpiod_set_consumer_name(lcd->reset, "hx8357-reset");
 
-		for (i = 0; i < HX8357_NUM_IM_PINS; i++) {
-			lcd->im_pins[i] = of_get_named_gpio(spi->dev.of_node,
-							    "im-gpios", i);
-			if (lcd->im_pins[i] == -EPROBE_DEFER) {
-				dev_info(&spi->dev, "GPIO requested is not here yet, deferring the probe\n");
-				return -EPROBE_DEFER;
-			}
-			if (!gpio_is_valid(lcd->im_pins[i])) {
-				dev_err(&spi->dev, "Missing dt property: im-gpios\n");
-				return -EINVAL;
+	for (i = 0; i < HX8357_NUM_IM_PINS; i++) {
+		lcd->im_pins[i] = devm_gpiod_get_index(&spi->dev,
+						       "im", i, GPIOD_OUT_LOW);
+		ret = PTR_ERR_OR_ZERO(lcd->im_pins[i]);
+		if (ret) {
+			if (ret == -ENOENT) {
+				if (i == 0)
+					break;
+				dev_err(&spi->dev, "Missing im gpios[%d]\n", i);
+				ret = -EINVAL;
+			} if (ret == -EPROBE_DEFER) {
+				dev_info(&spi->dev, "im gpio[%d] is not here yet, deferring the probe\n",
+					 i);
+			} else {
+				dev_err(&spi->dev, "failed to request im gpio[%d]: %d\n",
+					i, ret);
 			}
 
-			ret = devm_gpio_request_one(&spi->dev, lcd->im_pins[i],
-						    GPIOF_OUT_INIT_LOW,
-						    "im_pins");
-			if (ret) {
-				dev_err(&spi->dev, "failed to request gpio %d: %d\n",
-					lcd->im_pins[i], ret);
-				return -EINVAL;
-			}
+			return ret;
 		}
-	} else {
-		lcd->use_im_pins = 0;
+
+		gpiod_set_consumer_name(lcd->im_pins[i], "im_pins");
+
+		lcd->use_im_pins = true;
 	}
 
 	lcdev = devm_lcd_device_register(&spi->dev, "mxsfb", &spi->dev, lcd,
