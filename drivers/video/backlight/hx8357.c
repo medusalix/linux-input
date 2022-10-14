@@ -10,8 +10,8 @@
 #include <linux/gpio/consumer.h>
 #include <linux/lcd.h>
 #include <linux/module.h>
-#include <linux/of.h>
-#include <linux/of_device.h>
+#include <linux/mod_devicetable.h>
+#include <linux/property.h>
 #include <linux/spi/spi.h>
 
 #define HX8357_NUM_IM_PINS	3
@@ -581,10 +581,14 @@ MODULE_DEVICE_TABLE(of, hx8357_dt_ids);
 
 static int hx8357_probe(struct spi_device *spi)
 {
+	int (*lcd_init_fn)(struct lcd_device *);
 	struct lcd_device *lcdev;
 	struct hx8357_data *lcd;
-	const struct of_device_id *match;
 	int i, ret;
+
+	lcd_init_fn = device_get_match_data(&spi->dev);
+	if (!lcd_init_fn)
+		return -EINVAL;
 
 	lcd = devm_kzalloc(&spi->dev, sizeof(*lcd), GFP_KERNEL);
 	if (!lcd)
@@ -597,10 +601,6 @@ static int hx8357_probe(struct spi_device *spi)
 	}
 
 	lcd->spi = spi;
-
-	match = of_match_device(hx8357_dt_ids, &spi->dev);
-	if (!match || !match->data)
-		return -EINVAL;
 
 	lcd->reset = devm_gpiod_get(&spi->dev, "reset", GPIOD_OUT_LOW);
 	ret = PTR_ERR_OR_ZERO(lcd->reset);
@@ -647,7 +647,7 @@ static int hx8357_probe(struct spi_device *spi)
 
 	hx8357_lcd_reset(lcdev);
 
-	ret = ((int (*)(struct lcd_device *))match->data)(lcdev);
+	ret = lcd_init_fn(lcdev);
 	if (ret) {
 		dev_err(&spi->dev, "Couldn't initialize panel\n");
 		return ret;
