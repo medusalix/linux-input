@@ -48,13 +48,16 @@ enum nfcmrvl_phy {
 	NFCMRVL_PHY_SPI		= 3,
 };
 
+struct gpio_desc;
+
 struct nfcmrvl_platform_config {
 	/*
 	 * Generic
 	 */
 
-	/* GPIO that is wired to RESET_N signal */
-	int reset_n_io;
+	/* GPIO that controls reset pin */
+	struct gpio_desc *reset;
+
 	/* Tell if transport is muxed in HCI one */
 	unsigned int hci_muxed;
 
@@ -66,7 +69,8 @@ struct nfcmrvl_platform_config {
 	unsigned int flow_control;
 	/* Tell if firmware supports break control for power management */
 	unsigned int break_control;
-
+	/* Reset GPIO was allocated using legacy gpio API */
+	bool reset_legacy_api;
 
 	/*
 	 * I2C specific

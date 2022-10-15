@@ -5,9 +5,11 @@
  * Copyright (C) 2015, Marvell International Ltd.
  */
 
+#include <linux/err.h>
 #include <linux/module.h>
 #include <linux/delay.h>
-#include <linux/of_gpio.h>
+#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <net/nfc/nci.h>
 #include <net/nfc/nci_core.h>
 #include "nfcmrvl.h"
@@ -86,9 +88,20 @@ static int nfcmrvl_uart_parse_dt(struct device_node *node,
 	else
 		config->break_control = 0;
 
+	config->reset = fwnode_gpiod_get_index(of_fwnode_handle(matched_node),
+					       "reset", 0, GPIOD_ASIS,
+					       "nfcmrvl_reset_n");
+	ret = PTR_ERR_OR_ZERO(config->reset);
+	if (ret) {
+		if (ret == -ENOENT)
+			ret = 0;
+		else
+			pr_err("failed to request reset gpio: %d\n", ret);
+	}
+
 	of_node_put(matched_node);
 
-	return 0;
+	return ret;
 }
 
 /*
@@ -100,6 +113,7 @@ static int nfcmrvl_nci_uart_open(struct nci_uart *nu)
 	struct nfcmrvl_private *priv;
 	struct nfcmrvl_platform_config config;
 	struct device *dev = nu->tty->dev;
+	int ret;
 
 	/*
 	 * Platform data cannot be used here since usually it is already used
@@ -111,9 +125,21 @@ static int nfcmrvl_nci_uart_open(struct nci_uart *nu)
 	    nfcmrvl_uart_parse_dt(dev->parent->of_node, &config) < 0) {
 		pr_info("No DT data -> fallback to module params\n");
 		config.hci_muxed = hci_muxed;
-		config.reset_n_io = reset_n_io;
 		config.flow_control = flow_control;
 		config.break_control = break_control;
+
+		if (gpio_is_valid(reset_n_io)) {
+			ret = gpio_request_one(reset_n_io, GPIOF_OUT_INIT_LOW,
+					       "nfcmrvl_reset_n");
+			if (ret < 0) {
+				pr_err("failed to request reset gpio %d: %d\n",
+					reset_n_io, ret);
+				return ret;
+			}
+
+			config.reset = gpio_to_desc(reset_n_io);
+			config.reset_legacy_api = true;
+		}
 	}
 
 	priv = nfcmrvl_nci_register_dev(NFCMRVL_PHY_UART, nu, &uart_ops,
@@ -131,7 +157,18 @@ static int nfcmrvl_nci_uart_open(struct nci_uart *nu)
 
 static void nfcmrvl_nci_uart_close(struct nci_uart *nu)
 {
+	struct nfcmrvl_private *priv = (struct nfcmrvl_private *)nu->drv_data;
+	struct gpio_desc *reset = priv->config.reset;
+	bool reset_legacy_api = priv->config.reset_legacy_api;
+
 	nfcmrvl_nci_unregister_dev((struct nfcmrvl_private *)nu->drv_data);
+
+	if (reset) {
+		if (reset_legacy_api)
+			gpio_free(desc_to_gpio(reset));
+		else
+			gpiod_put(reset);
+	}
 }
 
 static int nfcmrvl_nci_uart_recv(struct nci_uart *nu, struct sk_buff *skb)

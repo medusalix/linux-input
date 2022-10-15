@@ -5,6 +5,8 @@
  * Copyright (C) 2015, Marvell International Ltd.
  */
 
+#include <linux/err.h>
+#include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/i2c.h>
@@ -215,6 +217,17 @@ static int nfcmrvl_i2c_probe(struct i2c_client *client,
 			"Unable to register IRQ handler\n");
 		return ret;
 	}
+
+	config.reset = devm_gpiod_get_optional(&drv_data->i2c->dev, "reset",
+					       GPIOD_OUT_HIGH);
+	ret = PTR_ERR_OR_ZERO(config.reset);
+	if (ret) {
+		nfc_err(&drv_data->i2c->dev,
+			"failed to request reset gpio: %d\n", ret);
+		return ret;
+	}
+
+	gpiod_set_consumer_name(config.reset, "nfcmrvl_reset_n");
 
 	drv_data->priv = nfcmrvl_nci_register_dev(NFCMRVL_PHY_I2C,
 						  drv_data, &i2c_ops,

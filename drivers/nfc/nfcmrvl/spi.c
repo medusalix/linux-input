@@ -5,6 +5,8 @@
  * Copyright (C) 2015, Marvell International Ltd.
  */
 
+#include <linux/err.h>
+#include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/nfc.h>
@@ -153,6 +155,17 @@ static int nfcmrvl_spi_probe(struct spi_device *spi)
 		nfc_err(&drv_data->spi->dev, "Unable to register IRQ handler");
 		return -ENODEV;
 	}
+
+	config.reset = devm_gpiod_get_optional(&drv_data->spi->dev, "reset",
+					       GPIOD_OUT_HIGH);
+	ret = PTR_ERR_OR_ZERO(config.reset);
+	if (ret) {
+		nfc_err(&drv_data->spi->dev,
+			"failed to request reset gpio: %d\n", ret);
+		return ret;
+	}
+
+	gpiod_set_consumer_name(config.reset, "nfcmrvl_reset_n");
 
 	drv_data->priv = nfcmrvl_nci_register_dev(NFCMRVL_PHY_SPI,
 						  drv_data, &spi_ops,
