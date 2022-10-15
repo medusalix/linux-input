@@ -290,7 +290,7 @@ static int nfcmrvl_probe(struct usb_interface *intf,
 	struct nfcmrvl_private *priv;
 	int i;
 	struct usb_device *udev = interface_to_usbdev(intf);
-	struct nfcmrvl_platform_data config;
+	struct nfcmrvl_platform_config config;
 
 	/* No configuration for USB */
 	memset(&config, 0, sizeof(config));

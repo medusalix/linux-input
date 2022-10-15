@@ -57,7 +57,7 @@ static const struct nfcmrvl_if_ops uart_ops = {
 };
 
 static int nfcmrvl_uart_parse_dt(struct device_node *node,
-				 struct nfcmrvl_platform_data *pdata)
+				 struct nfcmrvl_platform_config *config)
 {
 	struct device_node *matched_node;
 	int ret;
@@ -69,7 +69,7 @@ static int nfcmrvl_uart_parse_dt(struct device_node *node,
 			return -ENODEV;
 	}
 
-	ret = nfcmrvl_parse_dt(matched_node, pdata);
+	ret = nfcmrvl_parse_dt(matched_node, config);
 	if (ret < 0) {
 		pr_err("Failed to get generic entries\n");
 		of_node_put(matched_node);
@@ -77,14 +77,14 @@ static int nfcmrvl_uart_parse_dt(struct device_node *node,
 	}
 
 	if (of_find_property(matched_node, "flow-control", NULL))
-		pdata->flow_control = 1;
+		config->flow_control = 1;
 	else
-		pdata->flow_control = 0;
+		config->flow_control = 0;
 
 	if (of_find_property(matched_node, "break-control", NULL))
-		pdata->break_control = 1;
+		config->break_control = 1;
 	else
-		pdata->break_control = 0;
+		config->break_control = 0;
 
 	of_node_put(matched_node);
 
@@ -98,8 +98,7 @@ static int nfcmrvl_uart_parse_dt(struct device_node *node,
 static int nfcmrvl_nci_uart_open(struct nci_uart *nu)
 {
 	struct nfcmrvl_private *priv;
-	struct nfcmrvl_platform_data config;
-	const struct nfcmrvl_platform_data *pdata = NULL;
+	struct nfcmrvl_platform_config config;
 	struct device *dev = nu->tty->dev;
 
 	/*
@@ -108,21 +107,17 @@ static int nfcmrvl_nci_uart_open(struct nci_uart *nu)
 	 * and check if DT entries were added.
 	 */
 
-	if (dev && dev->parent && dev->parent->of_node)
-		if (nfcmrvl_uart_parse_dt(dev->parent->of_node, &config) == 0)
-			pdata = &config;
-
-	if (!pdata) {
-		pr_info("No platform data / DT -> fallback to module params\n");
+	if (!dev || !dev->parent || !dev->parent->of_node ||
+	    nfcmrvl_uart_parse_dt(dev->parent->of_node, &config) < 0) {
+		pr_info("No DT data -> fallback to module params\n");
 		config.hci_muxed = hci_muxed;
 		config.reset_n_io = reset_n_io;
 		config.flow_control = flow_control;
 		config.break_control = break_control;
-		pdata = &config;
 	}
 
 	priv = nfcmrvl_nci_register_dev(NFCMRVL_PHY_UART, nu, &uart_ops,
-					dev, pdata);
+					dev, &config);
 	if (IS_ERR(priv))
 		return PTR_ERR(priv);
 

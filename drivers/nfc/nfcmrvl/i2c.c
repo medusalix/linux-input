@@ -151,27 +151,27 @@ static const struct nfcmrvl_if_ops i2c_ops = {
 };
 
 static int nfcmrvl_i2c_parse_dt(struct device_node *node,
-				struct nfcmrvl_platform_data *pdata)
+				struct nfcmrvl_platform_config *config)
 {
 	int ret;
 
-	ret = nfcmrvl_parse_dt(node, pdata);
+	ret = nfcmrvl_parse_dt(node, config);
 	if (ret < 0) {
 		pr_err("Failed to get generic entries\n");
 		return ret;
 	}
 
 	if (of_find_property(node, "i2c-int-falling", NULL))
-		pdata->irq_polarity = IRQF_TRIGGER_FALLING;
+		config->irq_polarity = IRQF_TRIGGER_FALLING;
 	else
-		pdata->irq_polarity = IRQF_TRIGGER_RISING;
+		config->irq_polarity = IRQF_TRIGGER_RISING;
 
 	ret = irq_of_parse_and_map(node, 0);
 	if (!ret) {
 		pr_err("Unable to get irq\n");
 		return -EINVAL;
 	}
-	pdata->irq = ret;
+	config->irq = ret;
 
 	return 0;
 }
@@ -179,10 +179,12 @@ static int nfcmrvl_i2c_parse_dt(struct device_node *node,
 static int nfcmrvl_i2c_probe(struct i2c_client *client,
 			     const struct i2c_device_id *id)
 {
-	const struct nfcmrvl_platform_data *pdata;
 	struct nfcmrvl_i2c_drv_data *drv_data;
-	struct nfcmrvl_platform_data config;
+	struct nfcmrvl_platform_config config;
 	int ret;
+
+	if (!client->dev.of_node)
+		return -EINVAL;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		nfc_err(&client->dev, "Need I2C_FUNC_I2C\n");
@@ -199,19 +201,14 @@ static int nfcmrvl_i2c_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, drv_data);
 
-	pdata = client->dev.platform_data;
-
-	if (!pdata && client->dev.of_node)
-		if (nfcmrvl_i2c_parse_dt(client->dev.of_node, &config) == 0)
-			pdata = &config;
-
-	if (!pdata)
-		return -EINVAL;
+	ret = nfcmrvl_i2c_parse_dt(client->dev.of_node, &config);
+	if (ret)
+		return ret;
 
 	/* Request the read IRQ */
-	ret = devm_request_threaded_irq(&drv_data->i2c->dev, pdata->irq,
+	ret = devm_request_threaded_irq(&drv_data->i2c->dev, config.irq,
 					NULL, nfcmrvl_i2c_int_irq_thread_fn,
-					pdata->irq_polarity | IRQF_ONESHOT,
+					config.irq_polarity | IRQF_ONESHOT,
 					"nfcmrvl_i2c_int", drv_data);
 	if (ret < 0) {
 		nfc_err(&drv_data->i2c->dev,
@@ -221,7 +218,7 @@ static int nfcmrvl_i2c_probe(struct i2c_client *client,
 
 	drv_data->priv = nfcmrvl_nci_register_dev(NFCMRVL_PHY_I2C,
 						  drv_data, &i2c_ops,
-						  &drv_data->i2c->dev, pdata);
+						  &drv_data->i2c->dev, &config);
 
 	if (IS_ERR(drv_data->priv))
 		return PTR_ERR(drv_data->priv);

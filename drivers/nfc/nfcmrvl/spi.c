@@ -104,11 +104,11 @@ static const struct nfcmrvl_if_ops spi_ops = {
 };
 
 static int nfcmrvl_spi_parse_dt(struct device_node *node,
-				struct nfcmrvl_platform_data *pdata)
+				struct nfcmrvl_platform_config *config)
 {
 	int ret;
 
-	ret = nfcmrvl_parse_dt(node, pdata);
+	ret = nfcmrvl_parse_dt(node, config);
 	if (ret < 0) {
 		pr_err("Failed to get generic entries\n");
 		return ret;
@@ -119,17 +119,19 @@ static int nfcmrvl_spi_parse_dt(struct device_node *node,
 		pr_err("Unable to get irq\n");
 		return -EINVAL;
 	}
-	pdata->irq = ret;
+	config->irq = ret;
 
 	return 0;
 }
 
 static int nfcmrvl_spi_probe(struct spi_device *spi)
 {
-	const struct nfcmrvl_platform_data *pdata;
-	struct nfcmrvl_platform_data config;
+	struct nfcmrvl_platform_config config;
 	struct nfcmrvl_spi_drv_data *drv_data;
 	int ret = 0;
+
+	if (!spi->dev.of_node)
+		return -EINVAL;
 
 	drv_data = devm_kzalloc(&spi->dev, sizeof(*drv_data), GFP_KERNEL);
 	if (!drv_data)
@@ -139,16 +141,11 @@ static int nfcmrvl_spi_probe(struct spi_device *spi)
 	drv_data->priv = NULL;
 	spi_set_drvdata(spi, drv_data);
 
-	pdata = spi->dev.platform_data;
+	ret = nfcmrvl_spi_parse_dt(spi->dev.of_node, &config);
+	if (ret)
+		return ret;
 
-	if (!pdata && spi->dev.of_node)
-		if (nfcmrvl_spi_parse_dt(spi->dev.of_node, &config) == 0)
-			pdata = &config;
-
-	if (!pdata)
-		return -EINVAL;
-
-	ret = devm_request_threaded_irq(&drv_data->spi->dev, pdata->irq,
+	ret = devm_request_threaded_irq(&drv_data->spi->dev, config.irq,
 					NULL, nfcmrvl_spi_int_irq_thread_fn,
 					IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 					"nfcmrvl_spi_int", drv_data);
@@ -160,7 +157,7 @@ static int nfcmrvl_spi_probe(struct spi_device *spi)
 	drv_data->priv = nfcmrvl_nci_register_dev(NFCMRVL_PHY_SPI,
 						  drv_data, &spi_ops,
 						  &drv_data->spi->dev,
-						  pdata);
+						  &config);
 	if (IS_ERR(drv_data->priv))
 		return PTR_ERR(drv_data->priv);
 

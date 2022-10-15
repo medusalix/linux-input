@@ -93,7 +93,7 @@ struct nfcmrvl_private *nfcmrvl_nci_register_dev(enum nfcmrvl_phy phy,
 				void *drv_data,
 				const struct nfcmrvl_if_ops *ops,
 				struct device *dev,
-				const struct nfcmrvl_platform_data *pdata)
+				const struct nfcmrvl_platform_config *config)
 {
 	struct nfcmrvl_private *priv;
 	int rc;
@@ -110,7 +110,7 @@ struct nfcmrvl_private *nfcmrvl_nci_register_dev(enum nfcmrvl_phy phy,
 	priv->dev = dev;
 	priv->phy = phy;
 
-	memcpy(&priv->config, pdata, sizeof(*pdata));
+	memcpy(&priv->config, config, sizeof(*config));
 
 	if (gpio_is_valid(priv->config.reset_n_io)) {
 		rc = gpio_request_one(priv->config.reset_n_io,
@@ -249,7 +249,7 @@ void nfcmrvl_chip_halt(struct nfcmrvl_private *priv)
 }
 
 int nfcmrvl_parse_dt(struct device_node *node,
-		     struct nfcmrvl_platform_data *pdata)
+		     struct nfcmrvl_platform_config *config)
 {
 	int reset_n_io;
 
@@ -260,12 +260,12 @@ int nfcmrvl_parse_dt(struct device_node *node,
 		pr_err("invalid reset-n-io GPIO\n");
 		return reset_n_io;
 	}
-	pdata->reset_n_io = reset_n_io;
+	config->reset_n_io = reset_n_io;
 
 	if (of_find_property(node, "hci-muxed", NULL))
-		pdata->hci_muxed = 1;
+		config->hci_muxed = 1;
 	else
-		pdata->hci_muxed = 0;
+		config->hci_muxed = 0;
 
 	return 0;
 }

@@ -8,8 +8,6 @@
 #ifndef _NFCMRVL_H_
 #define _NFCMRVL_H_
 
-#include <linux/platform_data/nfcmrvl.h>
-
 #include "fw_dnld.h"
 
 /* Define private flags: */
@@ -50,12 +48,40 @@ enum nfcmrvl_phy {
 	NFCMRVL_PHY_SPI		= 3,
 };
 
+struct nfcmrvl_platform_config {
+	/*
+	 * Generic
+	 */
+
+	/* GPIO that is wired to RESET_N signal */
+	int reset_n_io;
+	/* Tell if transport is muxed in HCI one */
+	unsigned int hci_muxed;
+
+	/*
+	 * UART specific
+	 */
+
+	/* Tell if UART needs flow control at init */
+	unsigned int flow_control;
+	/* Tell if firmware supports break control for power management */
+	unsigned int break_control;
+
+
+	/*
+	 * I2C specific
+	 */
+
+	unsigned int irq;
+	unsigned int irq_polarity;
+};
+
 struct nfcmrvl_private {
 
 	unsigned long flags;
 
 	/* Platform configuration */
-	struct nfcmrvl_platform_data config;
+	struct nfcmrvl_platform_config config;
 
 	/* Parent dev */
 	struct nci_dev *ndev;
@@ -94,13 +120,13 @@ struct nfcmrvl_private *nfcmrvl_nci_register_dev(enum nfcmrvl_phy phy,
 				void *drv_data,
 				const struct nfcmrvl_if_ops *ops,
 				struct device *dev,
-				const struct nfcmrvl_platform_data *pdata);
+				const struct nfcmrvl_platform_config *config);
 
 
 void nfcmrvl_chip_reset(struct nfcmrvl_private *priv);
 void nfcmrvl_chip_halt(struct nfcmrvl_private *priv);
 
 int nfcmrvl_parse_dt(struct device_node *node,
-		     struct nfcmrvl_platform_data *pdata);
+		     struct nfcmrvl_platform_config *config);
 
 #endif
