@@ -74,9 +74,9 @@
 
 		rtc: rtc {
 			compatible = "moxa,moxart-rtc";
-			gpio-rtc-sclk = <&gpio 5 0>;
-			gpio-rtc-data = <&gpio 6 0>;
-			gpio-rtc-reset = <&gpio 7 0>;
+			rtc-sclk-gpios = <&gpio 5 0>;
+			rtc-data-gpios = <&gpio 6 0>;
+			rtc-reset-gpios = <&gpio 7 0>;
 		};
 
 		dma: dma@90500000 {
