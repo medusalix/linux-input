@@ -3,12 +3,12 @@
 
 #include <linux/acpi.h>
 #include <linux/delay.h>
-#include <linux/gpio.h>
+#include <linux/err.h>
+#include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 #include <linux/of.h>
-#include <linux/of_gpio.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
@@ -520,14 +520,13 @@ static int max98373_i2c_probe(struct i2c_client *i2c)
 	int ret = 0;
 	int reg = 0;
 	int i;
-	struct max98373_priv *max98373 = NULL;
+	struct max98373_priv *max98373;
+	struct gpio_desc *reset_gpio;
 
 	max98373 = devm_kzalloc(&i2c->dev, sizeof(*max98373), GFP_KERNEL);
+	if (!max98373)
+		return -ENOMEM;
 
-	if (!max98373) {
-		ret = -ENOMEM;
-		return ret;
-	}
 	i2c_set_clientdata(i2c, max98373);
 
 	/* update interleave mode info */
@@ -557,17 +556,23 @@ static int max98373_i2c_probe(struct i2c_client *i2c)
 	max98373_slot_config(&i2c->dev, max98373);
 
 	/* Power on device */
-	if (gpio_is_valid(max98373->reset_gpio)) {
-		ret = devm_gpio_request(&i2c->dev, max98373->reset_gpio,
-					"MAX98373_RESET");
-		if (ret) {
-			dev_err(&i2c->dev, "%s: Failed to request gpio %d\n",
-				__func__, max98373->reset_gpio);
-			return -EINVAL;
-		}
-		gpio_direction_output(max98373->reset_gpio, 0);
+	/* Acquire and assert reset line */
+	reset_gpio = devm_gpiod_get_optional(&i2c->dev, "maxim,reset",
+					     GPIOD_OUT_HIGH);
+	ret = PTR_ERR_OR_ZERO(reset_gpio);
+	if (ret) {
+		dev_err(&i2c->dev, "%s: Failed to request reset gpio: %d\n",
+			__func__, ret);
+		return ret;
+	}
+
+	gpiod_set_consumer_name(reset_gpio, "MAX98373_RESET");
+
+	if (reset_gpio) {
+		/* Keep line asserted to reset device */
 		msleep(50);
-		gpio_direction_output(max98373->reset_gpio, 1);
+		/* Deassert reset line */
+		gpiod_set_value_cansleep(reset_gpio, 0);
 		msleep(20);
 	}
 
