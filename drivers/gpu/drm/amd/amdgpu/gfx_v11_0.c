@@ -5051,6 +5051,7 @@ static int gfx_v11_0_set_powergating_state(void *handle,
 	switch (adev->ip_versions[GC_HWIP][0]) {
 	case IP_VERSION(11, 0, 0):
 	case IP_VERSION(11, 0, 2):
+	case IP_VERSION(11, 0, 3):
 		amdgpu_gfx_off_ctrl(adev, enable);
 		break;
 	case IP_VERSION(11, 0, 1):
@@ -6059,6 +6060,7 @@ static const struct amdgpu_ring_funcs gfx_v11_0_ring_funcs_gfx = {
 	.align_mask = 0xff,
 	.nop = PACKET3(PACKET3_NOP, 0x3FFF),
 	.support_64bit_ptrs = true,
+	.secure_submission_supported = true,
 	.vmhub = AMDGPU_GFXHUB_0,
 	.get_rptr = gfx_v11_0_ring_get_rptr_gfx,
 	.get_wptr = gfx_v11_0_ring_get_wptr_gfx,

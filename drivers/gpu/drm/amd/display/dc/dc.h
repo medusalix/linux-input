@@ -764,7 +764,6 @@ struct dc_debug_options {
 	bool disable_mem_low_power;
 	bool pstate_enabled;
 	bool disable_dmcu;
-	bool disable_psr;
 	bool force_abm_enable;
 	bool disable_stereo_support;
 	bool vsr_support;
@@ -1269,12 +1268,23 @@ void dc_post_update_surfaces_to_stream(
 
 #include "dc_stream.h"
 
-/*
- * Structure to store surface/stream associations for validation
+/**
+ * struct dc_validation_set - Struct to store surface/stream associations for validation
  */
 struct dc_validation_set {
+	/**
+	 * @stream: Stream state properties
+	 */
 	struct dc_stream_state *stream;
+
+	/**
+	 * @plane_state: Surface state
+	 */
 	struct dc_plane_state *plane_states[MAX_SURFACES];
+
+	/**
+	 * @plane_count: Total of active planes
+	 */
 	uint8_t plane_count;
 };
 
@@ -1285,6 +1295,12 @@ bool dc_validate_boot_timing(const struct dc *dc,
 enum dc_status dc_validate_plane(struct dc *dc, const struct dc_plane_state *plane_state);
 
 void get_clock_requirements_for_state(struct dc_state *state, struct AsicStateEx *info);
+
+enum dc_status dc_validate_with_context(struct dc *dc,
+					const struct dc_validation_set set[],
+					int set_count,
+					struct dc_state *context,
+					bool fast_validate);
 
 bool dc_set_generic_gpio_for_stereo(bool enable,
 		struct gpio_service *gpio_service);
@@ -1321,15 +1337,12 @@ void dc_resource_state_destruct(struct dc_state *context);
 
 bool dc_resource_is_dsc_encoding_supported(const struct dc *dc);
 
-/*
- * TODO update to make it about validation sets
- * Set up streams and links associated to drive sinks
- * The streams parameter is an absolute set of all active streams.
- *
- * After this call:
- *   Phy, Encoder, Timing Generator are programmed and enabled.
- *   New streams are enabled with blank stream; no memory read.
- */
+enum dc_status dc_commit_streams(struct dc *dc,
+				 struct dc_stream_state *streams[],
+				 uint8_t stream_count);
+
+/* TODO: When the transition to the new commit sequence is done, remove this
+ * function in favor of dc_commit_streams. */
 bool dc_commit_state(struct dc *dc, struct dc_state *context);
 
 struct dc_state *dc_create_state(struct dc *dc);
