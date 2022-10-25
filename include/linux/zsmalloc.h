@@ -33,6 +33,19 @@ enum zs_mapmode {
 	 */
 };
 
+#define ZS_PAGE_ORDER_2		2
+#define ZS_PAGE_ORDER_3		3
+#define ZS_PAGE_ORDER_4		4
+
+/*
+ * A single 'zspage' is composed of up to 2^N discontiguous 0-order (single)
+ * pages. ZS_MAX_PAGE_ORDER defines upper limit on N, ZS_MIN_PAGE_ORDER
+ * defines lower limit on N. ZS_DEFAULT_PAGE_ORDER is recommended value.
+ */
+#define ZS_MIN_PAGE_ORDER	ZS_PAGE_ORDER_2
+#define ZS_MAX_PAGE_ORDER	ZS_PAGE_ORDER_4
+#define ZS_DEFAULT_PAGE_ORDER	ZS_PAGE_ORDER_2
+
 struct zs_pool_stats {
 	/* How many pages were migrated (freed) */
 	atomic_long_t pages_compacted;
@@ -40,7 +53,7 @@ struct zs_pool_stats {
 
 struct zs_pool;
 
-struct zs_pool *zs_create_pool(const char *name);
+struct zs_pool *zs_create_pool(const char *name, u32 zspage_order);
 void zs_destroy_pool(struct zs_pool *pool);
 
 unsigned long zs_malloc(struct zs_pool *pool, size_t size, gfp_t flags);
@@ -56,4 +69,6 @@ unsigned long zs_get_total_pages(struct zs_pool *pool);
 unsigned long zs_compact(struct zs_pool *pool);
 
 void zs_pool_stats(struct zs_pool *pool, struct zs_pool_stats *stats);
+
+unsigned int zs_get_class_size(struct zs_pool *pool, unsigned int size);
 #endif
