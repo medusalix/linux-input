@@ -14,7 +14,6 @@
 #include <linux/gpio.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
-#include <sound/tpa6130a2-plat.h>
 #include <sound/soc.h>
 #include <sound/tlv.h>
 #include <linux/of.h>
@@ -218,16 +217,15 @@ MODULE_DEVICE_TABLE(i2c, tpa6130a2_id);
 
 static int tpa6130a2_probe(struct i2c_client *client)
 {
-	struct device *dev;
+	struct device *dev = &client->dev;
 	struct tpa6130a2_data *data;
-	struct tpa6130a2_platform_data *pdata = client->dev.platform_data;
-	struct device_node *np = client->dev.of_node;
 	const struct i2c_device_id *id;
 	const char *regulator;
 	unsigned int version;
 	int ret;
 
-	dev = &client->dev;
+	if (!dev->of_node)
+		return -ENODEV;
 
 	data = devm_kzalloc(&client->dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
@@ -239,15 +237,7 @@ static int tpa6130a2_probe(struct i2c_client *client)
 	if (IS_ERR(data->regmap))
 		return PTR_ERR(data->regmap);
 
-	if (pdata) {
-		data->power_gpio = pdata->power_gpio;
-	} else if (np) {
-		data->power_gpio = of_get_named_gpio(np, "power-gpio", 0);
-	} else {
-		dev_err(dev, "Platform data not set\n");
-		dump_stack();
-		return -ENODEV;
-	}
+	data->power_gpio = of_get_named_gpio(dev->of_node, "power-gpio", 0);
 
 	i2c_set_clientdata(client, data);
 
