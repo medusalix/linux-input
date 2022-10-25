@@ -9,15 +9,15 @@
 
 #include <linux/module.h>
 #include <linux/errno.h>
+#include <linux/err.h>
 #include <linux/device.h>
 #include <linux/i2c.h>
-#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
 #include <sound/soc.h>
 #include <sound/tlv.h>
 #include <linux/of.h>
-#include <linux/of_gpio.h>
 #include <linux/regmap.h>
 
 #include "tpa6130a2.h"
@@ -32,7 +32,7 @@ struct tpa6130a2_data {
 	struct device *dev;
 	struct regmap *regmap;
 	struct regulator *supply;
-	int power_gpio;
+	struct gpio_desc *power_gpio;
 	enum tpa_model id;
 };
 
@@ -48,8 +48,8 @@ static int tpa6130a2_power(struct tpa6130a2_data *data, bool enable)
 			return ret;
 		}
 		/* Power on */
-		if (data->power_gpio >= 0)
-			gpio_set_value(data->power_gpio, 1);
+		if (data->power_gpio)
+			gpiod_set_value(data->power_gpio, 1);
 
 		/* Sync registers */
 		regcache_cache_only(data->regmap, false);
@@ -58,8 +58,8 @@ static int tpa6130a2_power(struct tpa6130a2_data *data, bool enable)
 			dev_err(data->dev,
 				"Failed to sync registers: %d\n", ret);
 			regcache_cache_only(data->regmap, true);
-			if (data->power_gpio >= 0)
-				gpio_set_value(data->power_gpio, 0);
+			if (data->power_gpio)
+				gpiod_set_value(data->power_gpio, 0);
 			ret2 = regulator_disable(data->supply);
 			if (ret2 != 0)
 				dev_err(data->dev,
@@ -75,8 +75,8 @@ static int tpa6130a2_power(struct tpa6130a2_data *data, bool enable)
 		regcache_cache_only(data->regmap, true);
 
 		/* Power off */
-		if (data->power_gpio >= 0)
-			gpio_set_value(data->power_gpio, 0);
+		if (data->power_gpio)
+			gpiod_set_value(data->power_gpio, 0);
 
 		ret = regulator_disable(data->supply);
 		if (ret != 0) {
@@ -224,36 +224,28 @@ static int tpa6130a2_probe(struct i2c_client *client)
 	unsigned int version;
 	int ret;
 
-	if (!dev->of_node)
-		return -ENODEV;
-
 	data = devm_kzalloc(&client->dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
+	i2c_set_clientdata(client, data);
 	data->dev = dev;
 
 	data->regmap = devm_regmap_init_i2c(client, &tpa6130a2_regmap_config);
 	if (IS_ERR(data->regmap))
 		return PTR_ERR(data->regmap);
 
-	data->power_gpio = of_get_named_gpio(dev->of_node, "power-gpio", 0);
+	data->power_gpio = devm_gpiod_get_optional(dev, "power", GPIOD_OUT_LOW);
+	ret = PTR_ERR_OR_ZERO(data->power_gpio);
+	if (ret) {
+		dev_err(dev, "Failed to request power GPIO: %d\n", ret);
+		return ret;
+	}
 
-	i2c_set_clientdata(client, data);
+	gpiod_set_consumer_name(data->power_gpio, "tpa6130a2 enable");
 
 	id = i2c_match_id(tpa6130a2_id, client);
 	data->id = id->driver_data;
-
-	if (data->power_gpio >= 0) {
-		ret = devm_gpio_request(dev, data->power_gpio,
-					"tpa6130a2 enable");
-		if (ret < 0) {
-			dev_err(dev, "Failed to request power GPIO (%d)\n",
-				data->power_gpio);
-			return ret;
-		}
-		gpio_direction_output(data->power_gpio, 0);
-	}
 
 	switch (data->id) {
 	default:
