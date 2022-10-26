@@ -10,11 +10,14 @@
 #include <linux/iversion.h>
 #include <linux/fsverity.h>
 #include <linux/sched/mm.h>
+#include "messages.h"
 #include "ctree.h"
 #include "btrfs_inode.h"
 #include "transaction.h"
 #include "disk-io.h"
 #include "locking.h"
+#include "fs.h"
+#include "accessors.h"
 
 /*
  * Implementation of the interface defined in struct fsverity_operations.

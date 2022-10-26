@@ -50,6 +50,10 @@
 #include "delalloc-space.h"
 #include "block-group.h"
 #include "subpage.h"
+#include "fs.h"
+#include "accessors.h"
+#include "extent-tree.h"
+#include "root-tree.h"
 
 #ifdef CONFIG_64BIT
 /* If we have a 32-bit userspace and 64-bit kernel, then the UAPI
@@ -949,6 +953,7 @@ static noinline int btrfs_mksubvol(const struct path *parent,
 	struct inode *dir = d_inode(parent->dentry);
 	struct btrfs_fs_info *fs_info = btrfs_sb(dir->i_sb);
 	struct dentry *dentry;
+	struct fscrypt_str name_str = FSTR_INIT((char *)name, namelen);
 	int error;
 
 	error = down_write_killable_nested(&dir->i_rwsem, I_MUTEX_PARENT);
@@ -969,8 +974,7 @@ static noinline int btrfs_mksubvol(const struct path *parent,
 	 * check for them now when we can safely fail
 	 */
 	error = btrfs_check_dir_item_collision(BTRFS_I(dir)->root,
-					       dir->i_ino, name,
-					       namelen);
+					       dir->i_ino, &name_str);
 	if (error)
 		goto out_dput;
 
@@ -1159,7 +1163,7 @@ iterate:
 			goto next;
 
 		/* Now this extent covers @start, convert it to em */
-		btrfs_extent_item_to_extent_map(inode, &path, fi, false, em);
+		btrfs_extent_item_to_extent_map(inode, &path, fi, em);
 		break;
 next:
 		ret = btrfs_next_item(root, &path);
@@ -3271,7 +3275,7 @@ static noinline int btrfs_ioctl_snap_destroy(struct file *file,
 
 			dentry = btrfs_get_dentry(fs_info->sb,
 					BTRFS_FIRST_FREE_OBJECTID,
-					vol_args2->subvolid, 0, 0);
+					vol_args2->subvolid, 0);
 			if (IS_ERR(dentry)) {
 				err = PTR_ERR(dentry);
 				goto out_drop_write;
@@ -3774,6 +3778,7 @@ static long btrfs_ioctl_default_subvol(struct file *file, void __user *argp)
 	struct btrfs_trans_handle *trans;
 	struct btrfs_path *path = NULL;
 	struct btrfs_disk_key disk_key;
+	struct fscrypt_str name = FSTR_INIT("default", 7);
 	u64 objectid = 0;
 	u64 dir_id;
 	int ret;
@@ -3817,7 +3822,7 @@ static long btrfs_ioctl_default_subvol(struct file *file, void __user *argp)
 
 	dir_id = btrfs_super_root_dir(fs_info->super_copy);
 	di = btrfs_lookup_dir_item(trans, fs_info->tree_root, path,
-				   dir_id, "default", 7, 1);
+				   dir_id, &name, 1);
 	if (IS_ERR_OR_NULL(di)) {
 		btrfs_release_path(path);
 		btrfs_end_transaction(trans);
