@@ -122,17 +122,17 @@
 #define SOF_HDA_ADSP_DPLBASE_ENABLE		0x01
 
 /* Stream Registers */
-#define SOF_HDA_ADSP_REG_CL_SD_CTL		0x00
-#define SOF_HDA_ADSP_REG_CL_SD_STS		0x03
-#define SOF_HDA_ADSP_REG_CL_SD_LPIB		0x04
-#define SOF_HDA_ADSP_REG_CL_SD_CBL		0x08
-#define SOF_HDA_ADSP_REG_CL_SD_LVI		0x0C
-#define SOF_HDA_ADSP_REG_CL_SD_FIFOW		0x0E
-#define SOF_HDA_ADSP_REG_CL_SD_FIFOSIZE		0x10
-#define SOF_HDA_ADSP_REG_CL_SD_FORMAT		0x12
-#define SOF_HDA_ADSP_REG_CL_SD_FIFOL		0x14
-#define SOF_HDA_ADSP_REG_CL_SD_BDLPL		0x18
-#define SOF_HDA_ADSP_REG_CL_SD_BDLPU		0x1C
+#define SOF_HDA_ADSP_REG_SD_CTL			0x00
+#define SOF_HDA_ADSP_REG_SD_STS			0x03
+#define SOF_HDA_ADSP_REG_SD_LPIB		0x04
+#define SOF_HDA_ADSP_REG_SD_CBL			0x08
+#define SOF_HDA_ADSP_REG_SD_LVI			0x0C
+#define SOF_HDA_ADSP_REG_SD_FIFOW		0x0E
+#define SOF_HDA_ADSP_REG_SD_FIFOSIZE		0x10
+#define SOF_HDA_ADSP_REG_SD_FORMAT		0x12
+#define SOF_HDA_ADSP_REG_SD_FIFOL		0x14
+#define SOF_HDA_ADSP_REG_SD_BDLPL		0x18
+#define SOF_HDA_ADSP_REG_SD_BDLPU		0x1C
 #define SOF_HDA_ADSP_SD_ENTRY_SIZE		0x20
 
 /* CL: Software Position Based FIFO Capability Registers */
@@ -307,6 +307,7 @@
 /* Intel Vendor Specific Registers */
 #define HDA_VS_INTEL_EM2		0x1030
 #define HDA_VS_INTEL_EM2_L1SEN		BIT(13)
+#define HDA_VS_INTEL_LTRP		0x1048
 #define HDA_VS_INTEL_LTRP_GB_MASK	0x3F
 
 /*  HIPCI */
@@ -481,6 +482,7 @@ enum sof_hda_D0_substate {
 struct sof_intel_hda_dev {
 	bool imrboot_supported;
 	bool skip_imr_boot;
+	bool booted_from_imr;
 
 	int boot_iteration;
 
@@ -521,6 +523,14 @@ struct sof_intel_hda_dev {
 
 	/* Intel NHLT information */
 	struct nhlt_acpi_table *nhlt;
+
+	/*
+	 * Pointing to the IPC message if immediate sending was not possible
+	 * because the downlink communication channel was BUSY at the time.
+	 * The message will be re-tried when the channel becomes free (the ACK
+	 * is received from the DSP for the previous message)
+	 */
+	struct snd_sof_ipc_msg *delayed_ipc_tx_msg;
 };
 
 static inline struct hdac_bus *sof_to_bus(struct snd_sof_dev *s)
@@ -693,7 +703,7 @@ void hda_dsp_ctrl_ppcap_int_enable(struct snd_sof_dev *sdev, bool enable);
 int hda_dsp_ctrl_link_reset(struct snd_sof_dev *sdev, bool reset);
 void hda_dsp_ctrl_misc_clock_gating(struct snd_sof_dev *sdev, bool enable);
 int hda_dsp_ctrl_clock_power_gating(struct snd_sof_dev *sdev, bool enable);
-int hda_dsp_ctrl_init_chip(struct snd_sof_dev *sdev, bool full_reset);
+int hda_dsp_ctrl_init_chip(struct snd_sof_dev *sdev);
 void hda_dsp_ctrl_stop_chip(struct snd_sof_dev *sdev);
 /*
  * HDA bus operations.
@@ -852,8 +862,12 @@ int hda_dsp_core_stall_reset(struct snd_sof_dev *sdev, unsigned int core_mask);
 irqreturn_t cnl_ipc4_irq_thread(int irq, void *context);
 int cnl_ipc4_send_msg(struct snd_sof_dev *sdev, struct snd_sof_ipc_msg *msg);
 irqreturn_t hda_dsp_ipc4_irq_thread(int irq, void *context);
+bool hda_ipc4_tx_is_busy(struct snd_sof_dev *sdev);
 int hda_dsp_ipc4_send_msg(struct snd_sof_dev *sdev, struct snd_sof_ipc_msg *msg);
 void hda_ipc4_dump(struct snd_sof_dev *sdev);
 extern struct sdw_intel_ops sdw_callback;
 
+struct sof_ipc4_fw_library;
+int hda_dsp_ipc4_load_library(struct snd_sof_dev *sdev,
+			      struct sof_ipc4_fw_library *fw_lib, bool reload);
 #endif
