@@ -6,12 +6,14 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/sort.h>
+#include "messages.h"
 #include "ctree.h"
 #include "delayed-ref.h"
 #include "transaction.h"
 #include "qgroup.h"
 #include "space-info.h"
 #include "tree-mod-log.h"
+#include "fs.h"
 
 struct kmem_cache *btrfs_delayed_ref_head_cachep;
 struct kmem_cache *btrfs_delayed_tree_ref_cachep;

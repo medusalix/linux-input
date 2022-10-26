@@ -11,8 +11,10 @@
 #include <linux/ratelimit.h>
 #include <linux/error-injection.h>
 #include <linux/sched/mm.h>
-#include "misc.h"
 #include "ctree.h"
+#include "fs.h"
+#include "messages.h"
+#include "misc.h"
 #include "free-space-cache.h"
 #include "transaction.h"
 #include "disk-io.h"
@@ -24,10 +26,15 @@
 #include "discard.h"
 #include "subpage.h"
 #include "inode-item.h"
+#include "fs.h"
+#include "accessors.h"
 
 #define BITS_PER_BITMAP		(PAGE_SIZE * 8UL)
 #define MAX_CACHE_BYTES_PER_GIG	SZ_64K
 #define FORCE_EXTENT_THRESHOLD	SZ_1M
+
+static struct kmem_cache *btrfs_free_space_cachep;
+static struct kmem_cache *btrfs_free_space_bitmap_cachep;
 
 struct btrfs_trim_range {
 	u64 start;
@@ -4130,6 +4137,31 @@ out:
 	clear_bit(BTRFS_FS_CLEANUP_SPACE_CACHE_V1, &fs_info->flags);
 
 	return ret;
+}
+
+int __init btrfs_free_space_init(void)
+{
+	btrfs_free_space_cachep = kmem_cache_create("btrfs_free_space",
+			sizeof(struct btrfs_free_space), 0,
+			SLAB_MEM_SPREAD, NULL);
+	if (!btrfs_free_space_cachep)
+		return -ENOMEM;
+
+	btrfs_free_space_bitmap_cachep = kmem_cache_create("btrfs_free_space_bitmap",
+							PAGE_SIZE, PAGE_SIZE,
+							SLAB_MEM_SPREAD, NULL);
+	if (!btrfs_free_space_bitmap_cachep) {
+		kmem_cache_destroy(btrfs_free_space_cachep);
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+void __cold btrfs_free_space_exit(void)
+{
+	kmem_cache_destroy(btrfs_free_space_cachep);
+	kmem_cache_destroy(btrfs_free_space_bitmap_cachep);
 }
 
 #ifdef CONFIG_BTRFS_FS_RUN_SANITY_TESTS

@@ -26,6 +26,7 @@
 #include <linux/ratelimit.h>
 #include <linux/crc32c.h>
 #include <linux/btrfs.h>
+#include "messages.h"
 #include "delayed-inode.h"
 #include "ctree.h"
 #include "disk-io.h"
@@ -49,6 +50,8 @@
 #include "discard.h"
 #include "qgroup.h"
 #include "raid56.h"
+#include "fs.h"
+#include "accessors.h"
 #define CREATE_TRACE_POINTS
 #include <trace/events/btrfs.h>
 
@@ -179,6 +182,12 @@ void __btrfs_handle_fs_error(struct btrfs_fs_info *fs_info, const char *function
 	const char *errstr;
 #endif
 
+#ifdef CONFIG_PRINTK_INDEX
+	printk_index_subsys_emit(
+		"BTRFS: error (device %s%s) in %s:%d: errno=%d %s",
+		KERN_CRIT, fmt);
+#endif
+
 	/*
 	 * Special case: if the error is EROFS, and we're already
 	 * under SB_RDONLY, then it is safe here.
@@ -271,6 +280,10 @@ void __cold _btrfs_printk(const struct btrfs_fs_info *fs_info, const char *fmt, 
 	const char *type = logtypes[4];
 	struct ratelimit_state *ratelimit = &printk_limits[4];
 
+#ifdef CONFIG_PRINTK_INDEX
+	printk_index_subsys_emit("%sBTRFS %s (device %s): ", NULL, fmt);
+#endif
+
 	va_start(args, fmt);
 
 	while ((kern_level = printk_get_level(fmt)) != 0) {
@@ -303,6 +316,20 @@ void __cold _btrfs_printk(const struct btrfs_fs_info *fs_info, const char *fmt, 
 	va_end(args);
 }
 #endif
+
+#ifdef CONFIG_BTRFS_ASSERT
+void __cold btrfs_assertfail(const char *expr, const char *file, int line)
+{
+	pr_err("assertion failed: %s, in %s:%d\n", expr, file, line);
+	BUG();
+}
+#endif
+
+void __cold btrfs_print_v0_err(struct btrfs_fs_info *fs_info)
+{
+	btrfs_err(fs_info,
+"Unsupported V0 extent filesystem detected. Aborting. Please re-create your filesystem with a newer kernel");
+}
 
 #if BITS_PER_LONG == 32
 void __cold btrfs_warn_32bit_limit(struct btrfs_fs_info *fs_info)
@@ -918,12 +945,14 @@ int btrfs_parse_options(struct btrfs_fs_info *info, char *options,
 				ret = -EINVAL;
 				goto out;
 			}
+			btrfs_clear_opt(info->mount_opt, NODISCARD);
 			break;
 		case Opt_nodiscard:
 			btrfs_clear_and_info(info, DISCARD_SYNC,
 					     "turning off discard");
 			btrfs_clear_and_info(info, DISCARD_ASYNC,
 					     "turning off async discard");
+			btrfs_set_opt(info->mount_opt, NODISCARD);
 			break;
 		case Opt_space_cache:
 		case Opt_space_cache_version:
@@ -1394,6 +1423,7 @@ static int get_default_subvol_objectid(struct btrfs_fs_info *fs_info, u64 *objec
 	struct btrfs_dir_item *di;
 	struct btrfs_path *path;
 	struct btrfs_key location;
+	struct fscrypt_str name = FSTR_INIT("default", 7);
 	u64 dir_id;
 
 	path = btrfs_alloc_path();
@@ -1406,7 +1436,7 @@ static int get_default_subvol_objectid(struct btrfs_fs_info *fs_info, u64 *objec
 	 * to mount.
 	 */
 	dir_id = btrfs_super_root_dir(fs_info->super_copy);
-	di = btrfs_lookup_dir_item(NULL, root, path, dir_id, "default", 7, 0);
+	di = btrfs_lookup_dir_item(NULL, root, path, dir_id, &name, 0);
 	if (IS_ERR(di)) {
 		btrfs_free_path(path);
 		return PTR_ERR(di);
@@ -1507,7 +1537,8 @@ int btrfs_sync_fs(struct super_block *sb, int wait)
 			 * Exit unless we have some pending changes
 			 * that need to go through commit
 			 */
-			if (fs_info->pending_changes == 0)
+			if (!test_bit(BTRFS_FS_NEED_TRANS_COMMIT,
+				      &fs_info->flags))
 				return 0;
 			/*
 			 * A non-blocking test if the fs is frozen. We must not
@@ -2555,6 +2586,7 @@ static int check_dev_super(struct btrfs_device *dev)
 {
 	struct btrfs_fs_info *fs_info = dev->fs_info;
 	struct btrfs_super_block *sb;
+	u16 csum_type;
 	int ret = 0;
 
 	/* This should be called with fs still frozen. */
@@ -2568,6 +2600,21 @@ static int check_dev_super(struct btrfs_device *dev)
 	sb = btrfs_read_dev_one_super(dev->bdev, 0, true);
 	if (IS_ERR(sb))
 		return PTR_ERR(sb);
+
+	/* Verify the checksum. */
+	csum_type = btrfs_super_csum_type(sb);
+	if (csum_type != btrfs_super_csum_type(fs_info->super_copy)) {
+		btrfs_err(fs_info, "csum type changed, has %u expect %u",
+			  csum_type, btrfs_super_csum_type(fs_info->super_copy));
+		ret = -EUCLEAN;
+		goto out;
+	}
+
+	if (btrfs_check_super_csum(fs_info, sb)) {
+		btrfs_err(fs_info, "csum for on-disk super block no longer matches");
+		ret = -EUCLEAN;
+		goto out;
+	}
 
 	/* Btrfs_validate_super() includes fsid check against super->fsid. */
 	ret = btrfs_validate_super(fs_info, sb, 0);
@@ -2678,7 +2725,7 @@ static __cold void btrfs_interface_exit(void)
 	misc_deregister(&btrfs_misc);
 }
 
-static void __init btrfs_print_mod_info(void)
+static int __init btrfs_print_mod_info(void)
 {
 	static const char options[] = ""
 #ifdef CONFIG_BTRFS_DEBUG
@@ -2705,122 +2752,125 @@ static void __init btrfs_print_mod_info(void)
 #endif
 			;
 	pr_info("Btrfs loaded, crc32c=%s%s\n", crc32c_impl(), options);
+	return 0;
 }
 
-static int __init init_btrfs_fs(void)
+static int register_btrfs(void)
 {
-	int err;
+	return register_filesystem(&btrfs_fs_type);
+}
 
-	btrfs_props_init();
+static void unregister_btrfs(void)
+{
+	unregister_filesystem(&btrfs_fs_type);
+}
 
-	err = btrfs_init_sysfs();
-	if (err)
-		return err;
+/* Helper structure for long init/exit functions. */
+struct init_sequence {
+	int (*init_func)(void);
+	/* Can be NULL if the init_func doesn't need cleanup. */
+	void (*exit_func)(void);
+};
 
-	btrfs_init_compress();
+static const struct init_sequence mod_init_seq[] = {
+	{
+		.init_func = btrfs_props_init,
+		.exit_func = NULL,
+	}, {
+		.init_func = btrfs_init_sysfs,
+		.exit_func = btrfs_exit_sysfs,
+	}, {
+		.init_func = btrfs_init_compress,
+		.exit_func = btrfs_exit_compress,
+	}, {
+		.init_func = btrfs_init_cachep,
+		.exit_func = btrfs_destroy_cachep,
+	}, {
+		.init_func = btrfs_transaction_init,
+		.exit_func = btrfs_transaction_exit,
+	}, {
+		.init_func = btrfs_ctree_init,
+		.exit_func = btrfs_ctree_exit,
+	}, {
+		.init_func = btrfs_free_space_init,
+		.exit_func = btrfs_free_space_exit,
+	}, {
+		.init_func = extent_state_init_cachep,
+		.exit_func = extent_state_free_cachep,
+	}, {
+		.init_func = extent_buffer_init_cachep,
+		.exit_func = extent_buffer_free_cachep,
+	}, {
+		.init_func = btrfs_bioset_init,
+		.exit_func = btrfs_bioset_exit,
+	}, {
+		.init_func = extent_map_init,
+		.exit_func = extent_map_exit,
+	}, {
+		.init_func = ordered_data_init,
+		.exit_func = ordered_data_exit,
+	}, {
+		.init_func = btrfs_delayed_inode_init,
+		.exit_func = btrfs_delayed_inode_exit,
+	}, {
+		.init_func = btrfs_auto_defrag_init,
+		.exit_func = btrfs_auto_defrag_exit,
+	}, {
+		.init_func = btrfs_delayed_ref_init,
+		.exit_func = btrfs_delayed_ref_exit,
+	}, {
+		.init_func = btrfs_prelim_ref_init,
+		.exit_func = btrfs_prelim_ref_exit,
+	}, {
+		.init_func = btrfs_interface_init,
+		.exit_func = btrfs_interface_exit,
+	}, {
+		.init_func = btrfs_print_mod_info,
+		.exit_func = NULL,
+	}, {
+		.init_func = btrfs_run_sanity_tests,
+		.exit_func = NULL,
+	}, {
+		.init_func = register_btrfs,
+		.exit_func = unregister_btrfs,
+	}
+};
 
-	err = btrfs_init_cachep();
-	if (err)
-		goto free_compress;
+static bool mod_init_result[ARRAY_SIZE(mod_init_seq)];
 
-	err = extent_state_init_cachep();
-	if (err)
-		goto free_cachep;
+static __always_inline void btrfs_exit_btrfs_fs(void)
+{
+	int i;
 
-	err = extent_buffer_init_cachep();
-	if (err)
-		goto free_extent_cachep;
-
-	err = btrfs_bioset_init();
-	if (err)
-		goto free_eb_cachep;
-
-	err = extent_map_init();
-	if (err)
-		goto free_bioset;
-
-	err = ordered_data_init();
-	if (err)
-		goto free_extent_map;
-
-	err = btrfs_delayed_inode_init();
-	if (err)
-		goto free_ordered_data;
-
-	err = btrfs_auto_defrag_init();
-	if (err)
-		goto free_delayed_inode;
-
-	err = btrfs_delayed_ref_init();
-	if (err)
-		goto free_auto_defrag;
-
-	err = btrfs_prelim_ref_init();
-	if (err)
-		goto free_delayed_ref;
-
-	err = btrfs_interface_init();
-	if (err)
-		goto free_prelim_ref;
-
-	btrfs_print_mod_info();
-
-	err = btrfs_run_sanity_tests();
-	if (err)
-		goto unregister_ioctl;
-
-	err = register_filesystem(&btrfs_fs_type);
-	if (err)
-		goto unregister_ioctl;
-
-	return 0;
-
-unregister_ioctl:
-	btrfs_interface_exit();
-free_prelim_ref:
-	btrfs_prelim_ref_exit();
-free_delayed_ref:
-	btrfs_delayed_ref_exit();
-free_auto_defrag:
-	btrfs_auto_defrag_exit();
-free_delayed_inode:
-	btrfs_delayed_inode_exit();
-free_ordered_data:
-	ordered_data_exit();
-free_extent_map:
-	extent_map_exit();
-free_bioset:
-	btrfs_bioset_exit();
-free_eb_cachep:
-	extent_buffer_free_cachep();
-free_extent_cachep:
-	extent_state_free_cachep();
-free_cachep:
-	btrfs_destroy_cachep();
-free_compress:
-	btrfs_exit_compress();
-	btrfs_exit_sysfs();
-
-	return err;
+	for (i = ARRAY_SIZE(mod_init_seq) - 1; i >= 0; i--) {
+		if (!mod_init_result[i])
+			continue;
+		if (mod_init_seq[i].exit_func)
+			mod_init_seq[i].exit_func();
+		mod_init_result[i] = false;
+	}
 }
 
 static void __exit exit_btrfs_fs(void)
 {
-	btrfs_destroy_cachep();
-	btrfs_delayed_ref_exit();
-	btrfs_auto_defrag_exit();
-	btrfs_delayed_inode_exit();
-	btrfs_prelim_ref_exit();
-	ordered_data_exit();
-	extent_map_exit();
-	btrfs_bioset_exit();
-	extent_state_free_cachep();
-	extent_buffer_free_cachep();
-	btrfs_interface_exit();
-	unregister_filesystem(&btrfs_fs_type);
-	btrfs_exit_sysfs();
-	btrfs_cleanup_fs_uuids();
-	btrfs_exit_compress();
+	btrfs_exit_btrfs_fs();
+}
+
+static int __init init_btrfs_fs(void)
+{
+	int ret;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(mod_init_seq); i++) {
+		ASSERT(!mod_init_result[i]);
+		ret = mod_init_seq[i].init_func();
+		if (ret < 0) {
+			btrfs_exit_btrfs_fs();
+			return ret;
+		}
+		mod_init_result[i] = true;
+	}
+	return 0;
 }
 
 late_initcall(init_btrfs_fs);
