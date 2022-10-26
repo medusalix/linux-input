@@ -625,7 +625,6 @@ static bool hda_check_ipc_irq(struct snd_sof_dev *sdev)
 
 void hda_ipc_irq_dump(struct snd_sof_dev *sdev)
 {
-	struct hdac_bus *bus = sof_to_bus(sdev);
 	u32 adspis;
 	u32 intsts;
 	u32 intctl;
@@ -637,7 +636,7 @@ void hda_ipc_irq_dump(struct snd_sof_dev *sdev)
 	intsts = snd_sof_dsp_read(sdev, HDA_DSP_HDA_BAR, SOF_HDA_INTSTS);
 	intctl = snd_sof_dsp_read(sdev, HDA_DSP_HDA_BAR, SOF_HDA_INTCTL);
 	ppsts = snd_sof_dsp_read(sdev, HDA_DSP_PP_BAR, SOF_HDA_REG_PP_PPSTS);
-	rirbsts = snd_hdac_chip_readb(bus, RIRBSTS);
+	rirbsts = snd_sof_dsp_readb(sdev, HDA_DSP_HDA_BAR, AZX_REG_RIRBSTS);
 
 	dev_err(sdev->dev, "hda irq intsts 0x%8.8x intlctl 0x%8.8x rirb %2.2x\n",
 		intsts, intctl, rirbsts);
@@ -679,6 +678,17 @@ void hda_ipc4_dump(struct snd_sof_dev *sdev)
 	/* TODO: parse the raw msg */
 	dev_err(sdev->dev, "Host IPC initiator: %#x|%#x, target: %#x|%#x, ctl: %#x\n",
 		hipci, hipcie, hipct, hipcte, hipcctl);
+}
+
+bool hda_ipc4_tx_is_busy(struct snd_sof_dev *sdev)
+{
+	struct sof_intel_hda_dev *hda = sdev->pdata->hw_pdata;
+	const struct sof_intel_dsp_desc *chip = hda->desc;
+	u32 val;
+
+	val = snd_sof_dsp_read(sdev, HDA_DSP_BAR, chip->ipc_req);
+
+	return !!(val & chip->ipc_req_mask);
 }
 
 static int hda_init(struct snd_sof_dev *sdev)
@@ -879,7 +889,7 @@ static int hda_init_caps(struct snd_sof_dev *sdev)
 		dev_dbg(sdev->dev, "PP capability, will probe DSP later.\n");
 
 	/* Init HDA controller after i915 init */
-	ret = hda_dsp_ctrl_init_chip(sdev, true);
+	ret = hda_dsp_ctrl_init_chip(sdev);
 	if (ret < 0) {
 		dev_err(bus->dev, "error: init chip failed with ret: %d\n",
 			ret);
