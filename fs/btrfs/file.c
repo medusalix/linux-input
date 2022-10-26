@@ -30,6 +30,9 @@
 #include "delalloc-space.h"
 #include "reflink.h"
 #include "subpage.h"
+#include "fs.h"
+#include "accessors.h"
+#include "extent-tree.h"
 
 static struct kmem_cache *btrfs_inode_defrag_cachep;
 /*
@@ -1302,7 +1305,8 @@ lock_and_cleanup_extent_if_need(struct btrfs_inode *inode, struct page **pages,
 		struct btrfs_ordered_extent *ordered;
 
 		if (nowait) {
-			if (!try_lock_extent(&inode->io_tree, start_pos, last_pos)) {
+			if (!try_lock_extent(&inode->io_tree, start_pos, last_pos,
+					     cached_state)) {
 				for (i = 0; i < num_pages; i++) {
 					unlock_page(pages[i]);
 					put_page(pages[i]);
@@ -1372,6 +1376,7 @@ int btrfs_check_nocow_lock(struct btrfs_inode *inode, loff_t pos,
 {
 	struct btrfs_fs_info *fs_info = inode->root->fs_info;
 	struct btrfs_root *root = inode->root;
+	struct extent_state *cached_state = NULL;
 	u64 lockstart, lockend;
 	u64 num_bytes;
 	int ret;
@@ -1388,12 +1393,14 @@ int btrfs_check_nocow_lock(struct btrfs_inode *inode, loff_t pos,
 	num_bytes = lockend - lockstart + 1;
 
 	if (nowait) {
-		if (!btrfs_try_lock_ordered_range(inode, lockstart, lockend)) {
+		if (!btrfs_try_lock_ordered_range(inode, lockstart, lockend,
+						  &cached_state)) {
 			btrfs_drew_write_unlock(&root->snapshot_lock);
 			return -EAGAIN;
 		}
 	} else {
-		btrfs_lock_and_flush_ordered_range(inode, lockstart, lockend, NULL);
+		btrfs_lock_and_flush_ordered_range(inode, lockstart, lockend,
+						   &cached_state);
 	}
 	ret = can_nocow_extent(&inode->vfs_inode, lockstart, &num_bytes,
 			NULL, NULL, NULL, nowait, false);
@@ -1402,7 +1409,7 @@ int btrfs_check_nocow_lock(struct btrfs_inode *inode, loff_t pos,
 	else
 		*write_bytes = min_t(size_t, *write_bytes ,
 				     num_bytes - pos + lockstart);
-	unlock_extent(&inode->io_tree, lockstart, lockend, NULL);
+	unlock_extent(&inode->io_tree, lockstart, lockend, &cached_state);
 
 	return ret;
 }
@@ -3518,21 +3525,40 @@ static bool find_delalloc_subrange(struct btrfs_inode *inode, u64 start, u64 end
 	struct extent_map *em;
 	u64 em_end;
 	u64 delalloc_len;
+	unsigned int outstanding_extents;
 
 	/*
 	 * Search the io tree first for EXTENT_DELALLOC. If we find any, it
 	 * means we have delalloc (dirty pages) for which writeback has not
 	 * started yet.
 	 */
-	*delalloc_start_ret = start;
-	delalloc_len = count_range_bits(&inode->io_tree, delalloc_start_ret, end,
-					len, EXTENT_DELALLOC, 1);
+	spin_lock(&inode->lock);
+	outstanding_extents = inode->outstanding_extents;
+
+	if (inode->delalloc_bytes > 0) {
+		spin_unlock(&inode->lock);
+		*delalloc_start_ret = start;
+		delalloc_len = count_range_bits(&inode->io_tree,
+						delalloc_start_ret, end,
+						len, EXTENT_DELALLOC, 1);
+	} else {
+		spin_unlock(&inode->lock);
+		delalloc_len = 0;
+	}
+
 	/*
 	 * If delalloc was found then *delalloc_start_ret has a sector size
 	 * aligned value (rounded down).
 	 */
 	if (delalloc_len > 0)
 		*delalloc_end_ret = *delalloc_start_ret + delalloc_len - 1;
+
+	/*
+	 * No outstanding extents means we don't have any delalloc that is
+	 * flushing, so return the unflushed range found in the io tree (if any).
+	 */
+	if (outstanding_extents == 0)
+		return (delalloc_len > 0);
 
 	/*
 	 * Now also check if there's any extent map in the range that does not
@@ -3550,40 +3576,50 @@ static bool find_delalloc_subrange(struct btrfs_inode *inode, u64 start, u64 end
 	 */
 	read_lock(&em_tree->lock);
 	em = lookup_extent_mapping(em_tree, start, len);
-	read_unlock(&em_tree->lock);
+	if (!em) {
+		read_unlock(&em_tree->lock);
+		return (delalloc_len > 0);
+	}
 
 	/* extent_map_end() returns a non-inclusive end offset. */
-	em_end = em ? extent_map_end(em) : 0;
+	em_end = extent_map_end(em);
 
 	/*
 	 * If we have a hole/prealloc extent map, check the next one if this one
 	 * ends before our range's end.
 	 */
-	if (em && (em->block_start == EXTENT_MAP_HOLE ||
-		   test_bit(EXTENT_FLAG_PREALLOC, &em->flags)) && em_end < end) {
+	if ((em->block_start == EXTENT_MAP_HOLE ||
+	     test_bit(EXTENT_FLAG_PREALLOC, &em->flags)) && em_end < end) {
 		struct extent_map *next_em;
 
-		read_lock(&em_tree->lock);
-		next_em = lookup_extent_mapping(em_tree, em_end, len - em_end);
-		read_unlock(&em_tree->lock);
-
+		next_em = btrfs_next_extent_map(em_tree, em);
 		free_extent_map(em);
-		em_end = next_em ? extent_map_end(next_em) : 0;
+
+		/*
+		 * There's no next extent map or the next one starts beyond our
+		 * range, return the range found in the io tree (if any).
+		 */
+		if (!next_em || next_em->start > end) {
+			read_unlock(&em_tree->lock);
+			free_extent_map(next_em);
+			return (delalloc_len > 0);
+		}
+
+		em_end = extent_map_end(next_em);
 		em = next_em;
 	}
 
-	if (em && (em->block_start == EXTENT_MAP_HOLE ||
-		   test_bit(EXTENT_FLAG_PREALLOC, &em->flags))) {
-		free_extent_map(em);
-		em = NULL;
-	}
+	read_unlock(&em_tree->lock);
 
 	/*
-	 * No extent map or one for a hole or prealloc extent. Use the delalloc
-	 * range we found in the io tree if we have one.
+	 * We have a hole or prealloc extent that ends at or beyond our range's
+	 * end, return the range found in the io tree (if any).
 	 */
-	if (!em)
+	if (em->block_start == EXTENT_MAP_HOLE ||
+	    test_bit(EXTENT_FLAG_PREALLOC, &em->flags)) {
+		free_extent_map(em);
 		return (delalloc_len > 0);
+	}
 
 	/*
 	 * We don't have any range as EXTENT_DELALLOC in the io tree, so the
