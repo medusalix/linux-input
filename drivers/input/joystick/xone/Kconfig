@@ -32,4 +32,11 @@ config JOYSTICK_XONE_GIP_CHATPAD
 	help
 	  TODO.
 
+config JOYSTICK_XONE_GIP_HEADSET
+	tristate "Xbox Headset support"
+	depends on SND
+	select SND_PCM
+	help
+	  TODO.
+
 endif # JOYSTICK_XONE
