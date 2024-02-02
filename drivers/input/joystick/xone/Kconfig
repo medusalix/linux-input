@@ -11,3 +11,13 @@ menuconfig JOYSTICK_XONE
 	select CRYPTO_ECDH
 	help
 	  TODO.
+
+if JOYSTICK_XONE
+
+config JOYSTICK_XONE_WIRED
+	tristate "Wired Xbox devices"
+	depends on USB && !JOYSTICK_XPAD_XBOX_ONE
+	help
+	  TODO.
+
+endif # JOYSTICK_XONE
