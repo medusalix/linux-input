@@ -429,4 +429,6 @@ config JOYSTICK_SEESAW
 	  To compile this driver as a module, choose M here: the module will be
 	  called adafruit-seesaw.
 
+source "drivers/input/joystick/xone/Kconfig"
+
 endif

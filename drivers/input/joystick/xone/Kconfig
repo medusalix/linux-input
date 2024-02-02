@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+menuconfig JOYSTICK_XONE
+	tristate "Xbox One/Series X|S accessories support"
+	depends on POWER_SUPPLY && LEDS_CLASS && INPUT
+	select CRYPTO
+	select CRYPTO_HASH
+	select CRYPTO_SHA256
+	select CRYPTO_AKCIPHER
+	select CRYPTO_RSA
+	select CRYPTO_ECDH
+	help
+	  TODO.
