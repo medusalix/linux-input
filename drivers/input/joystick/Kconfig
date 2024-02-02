@@ -320,6 +320,13 @@ config JOYSTICK_XPAD_LEDS
 	  This option enables support for the LED which surrounds the Big X on
 	  Xbox 360 controllers.
 
+config JOYSTICK_XPAD_XBOX_ONE
+	bool "Xbox One gamepad support"
+	depends on JOYSTICK_XPAD
+	default y
+	help
+	  This option enables support for Xbox One gamepads.
+
 config JOYSTICK_WALKERA0701
 	tristate "Walkera WK-0701 RC transmitter"
 	depends on HIGH_RES_TIMERS && PARPORT
