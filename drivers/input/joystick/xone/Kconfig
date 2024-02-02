@@ -20,4 +20,10 @@ config JOYSTICK_XONE_WIRED
 	help
 	  TODO.
 
+config JOYSTICK_XONE_GIP_GAMEPAD
+	tristate "Xbox Controller support"
+	select INPUT_FF_MEMLESS
+	help
+	  TODO.
+
 endif # JOYSTICK_XONE
