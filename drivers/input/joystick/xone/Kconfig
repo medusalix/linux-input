@@ -26,4 +26,10 @@ config JOYSTICK_XONE_GIP_GAMEPAD
 	help
 	  TODO.
 
+config JOYSTICK_XONE_GIP_CHATPAD
+	tristate "Xbox Chatpad support"
+	depends on HID
+	help
+	  TODO.
+
 endif # JOYSTICK_XONE
